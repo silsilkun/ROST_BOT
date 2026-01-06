@@ -44,3 +44,9 @@ git switch <브랜치 이름> #브랜치 생성 및 이동 시 -c 옵션추가, 
 
 하준
 수환
+
+### 실행 방법
+cd ~/ros2_ws
+colcon build
+source install/setup.bash
+ros2 launch robot_system_bringup system.launch.py

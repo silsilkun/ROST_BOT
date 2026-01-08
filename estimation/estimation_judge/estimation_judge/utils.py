@@ -4,6 +4,20 @@ import json
 import re
 import os
 
+class ImageLoader:
+    def read_file(self, path: str) -> bytes | None:
+        return read_image_file(path)
+
+    def guess_mime_type(self, filename_or_format: str) -> str:
+        return guess_mime_type(filename_or_format)
+
+class ResponseParser:
+    def parse_labels(self, text: str) -> list[str]:
+        return parse_labels_from_text(text)
+
+    def convert_to_ids(self, labels: list[str], label_map: dict, unknown_id: float) -> list[float]:
+        return convert_labels_to_ids(labels, label_map, unknown_id)
+
 def guess_mime_type(filename_or_format: str) -> str:
     lower = (filename_or_format or "").lower()
     if "png" in lower:
@@ -49,7 +63,13 @@ def parse_labels_from_text(text: str) -> list[str]:
     labels = []
     if isinstance(parsed, list):
         for item in parsed:
-            labels.append(str(item["label"] if isinstance(item, dict) else item))
+            if isinstance(item, dict):
+                label = item.get("label") or item.get("name") or item.get("type")
+                if label is None:
+                    continue
+                labels.append(str(label))
+            else:
+                labels.append(str(item))
     else:
         # 최후의 수단: 콤마/줄바꿈으로 분리
         tokens = re.split(r"[,\n]+", cleaned)

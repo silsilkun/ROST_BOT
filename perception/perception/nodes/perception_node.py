@@ -1,74 +1,71 @@
-import cv2
-from perception.utils.realsense_manager import RealSenseManager
-from perception.utils.cam_event import (setup_click_collector,update_depth_frame,update_color_image,Save_Cam ,reset_points,get_saved_points)
 import rclpy
-from std_msgs.msg import Float32MultiArray
-from perception.utils.coordinatetr import Coordinate
-from sensor_msgs.msg import Image
-import numpy as np
-from perception.utils.publish_utils import publish_points_and_depth
+from rclpy.node import Node
+from perception.srv import to_estimation
+
+import sys
+import termios
+import tty
+
+def get_key():
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return ch
+
+
+class PerceptionClient(Node):
+    def __init__(self):
+        super().__init__('perception_client')
+        self.client_to_estimation = self.create_client(to_estimation, 'send_boxed_image')
+        self.client_to_control = self.create_client(to_control, 'send_coordinates')
+
+        while not self.client_to_estimation.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('서비스 대기 중...')
+
+        while not self.client_to_control.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('컨트롤 서비스 대기 중...')
+
+        self.get_logger().info('스페이스바를 누르면 이미지 전송')
+
+    def send_request_to_estimation(self):
+        request = to_estimation.Request()
+        request.image = None  # Placeholder for actual image data
+
+        is_success = self.client_to_estimation.call_async(request)
+        is_success.add_done_callback(self.response_callback)
+
+    def response_callback(self, is_successful):
+        response = is_successful.result()
+        self.get_logger().info(f"추론 서버 응답: {response.success}")
 
 
 def main():
-    # ROS 초기화
     rclpy.init()
-    node = rclpy.create_node('garbage_sender')
-    point_pub = node.create_publisher(Float32MultiArray, 'garbage_topic', 10)
-    depth_pub = node.create_publisher(Image, 'realsense_depth_topic', 10)
-    color_pub = node.create_publisher(Image, "realsense_color_topic", 10)
-    sent_space = False
+    node = PerceptionClient()
 
-    # RealSense 초기화
-    cam = RealSenseManager()
-    cv2.namedWindow("RealSense Color")
-    setup_click_collector("RealSense Color")
+    try:
+        while rclpy.ok():
+            key = get_key()
 
-    # 좌표 변환 클래스
-    picker = Coordinate()
+            if key == ' ':
+                node.get_logger().info('spacebar 입력 → 요청 전송')
+                node.send_request_to_estimation()
 
-    print("카메라 시작")
-    print("클릭: 포인트 추가")
-    print("s: 이미지 저장 | r: 리셋 | SPACE: 발행 | t: 발행 리셋 | esc: 종료")
+            elif key == 'q':
+                break
 
-    while True:
-        color_image, depth_frame = cam.get_frames()
-        if color_image is None or depth_frame is None:
-            continue
+            rclpy.spin_once(node, timeout_sec=0.01)
 
-        # click_collector에 프레임 전달 (중요)
-        update_depth_frame(depth_frame)
-        update_color_image(color_image)
+    except KeyboardInterrupt:
+        pass
 
-        # 클릭 포인트 시각화
-        display_image = color_image.copy()
-        for x, y, _ in get_saved_points():
-            cv2.circle(display_image, (int(x), int(y)), 5, (0, 0, 255), -1)
-
-        cv2.imshow("RealSense Color", display_image)
-
-        key = cv2.waitKey(1) & 0xFF
-
-        if key == ord('s'): #사진 저장
-            Save_Cam()
-
-        elif key == ord('r'): #리셋
-            reset_points()
-
-        elif key == ord(' '):
-            if not sent_space:
-                publish_points_and_depth(picker, depth_frame, color_image, get_saved_points, point_pub, color_pub, depth_pub, node)
-                sent_space = True
-
-        elif key == ord('t'): #토픽 횟수 초기화
-            sent_space = False
-
-        elif key == 27: #esc
-            break
-
-    cam.stop()
-    cv2.destroyAllWindows()
     node.destroy_node()
     rclpy.shutdown()
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()

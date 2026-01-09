@@ -21,13 +21,9 @@ class PerceptionClient(Node):
     def __init__(self):
         super().__init__('perception_client')
         self.client_to_estimation = self.create_client(to_estimation, 'send_boxed_image')
-        self.client_to_control = self.create_client(to_control, 'send_coordinates')
 
         while not self.client_to_estimation.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('서비스 대기 중...')
-
-        while not self.client_to_control.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('컨트롤 서비스 대기 중...')
 
         self.get_logger().info('스페이스바를 누르면 이미지 전송')
 

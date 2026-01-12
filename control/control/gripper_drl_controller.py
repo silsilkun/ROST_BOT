@@ -35,7 +35,7 @@ def recv_check():
         return False, val
 def gripper_move(stroke):
     flange_serial_write(modbus_fc16(282, 2, [stroke, 0]))
-    # wait(1.0) # 물리적 동작 시간을 충분히 기다려줍니다.
+    wait(1.0) # 물리적 동작 시간을 충분히 기다려줍니다.
 
 # ---- init serial & torque/current ----
 while True:
@@ -57,10 +57,6 @@ while True:
 
     flange_serial_write(modbus_fc06(275, 400)) # goal current
     flag, val = recv_check()
-
-    flange_serial_write(modbus_send_make(b"\x00\x03\x07\x122\x00\x01"))
-    res, data = flange_serial_read()
-    print(res,data)
 
     if flag is True:
         break
@@ -85,8 +81,7 @@ class GripperController:
         req.code = code
         future = self.cli.call_async(req)
         
-        rclpy.spin_until_future_complete(self.node, future, timeout_sec=15.0)
-
+        rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
         if future.result() is not None:
             return bool(future.result().success)
         else:
@@ -125,11 +120,11 @@ class GripperController:
         return success
 
     def terminate(self) -> bool:
-        self.node.get_logger().info("Terminating gripper connection...")
-        terminate_script = "flange_serial_close()"
-        success = self._send_drl_script(terminate_script)
-        if success:
-            self.node.get_logger().info("Gripper connection terminated successfully.")
-        else:
-            self.node.get_logger().error("Failed to terminate gripper connection.")
-        return success
+            self.node.get_logger().info("Terminating gripper connection...")
+            terminate_script = "flange_serial_close()"
+            success = self._send_drl_script(terminate_script)
+            if success:
+                self.node.get_logger().info("Gripper connection terminated successfully.")
+            else:
+                self.node.get_logger().error("Failed to terminate gripper connection.")
+            return success

@@ -27,8 +27,9 @@ VALID_IDS = {"PAPER", "PLASTIC", "CAN"}
 class RecycleDemo(Node):
     def __init__(self):
         super().__init__("recycle_demo_node", namespace=ROBOT_ID)
-        # DR_init 으로 ROS 노드 등록
-        DR_init.__dsr__node = self
+        # 별도 DSR 노드를 만들고 등록
+        self._dsr_node = rclpy.create_node("dsr_node", namespace=ROBOT_ID)
+        setattr(DR_init, "__dsr__node", self._dsr_node)
         from DSR_ROBOT2 import (
             movej,
             movel,
@@ -63,6 +64,10 @@ class RecycleDemo(Node):
         self.mode(self.mode_auto)
         self.movej(self.home, VEL, ACC)
         self.gripper.move(self.open_pos)
+        self.wait(self.open_wait)
+        if not self.gripper.initialize():
+            self.get_logger().error("Gripper initialize failed.")
+        
 
     # 고정된 자세(ZYZ)로 posx 좌표 생성
     def fixed_posx(self, x, y, z):
@@ -145,8 +150,8 @@ def main(args=None):
     rclpy.init(args=args)
 
     # DSR SDK 전역 설정
-    DR_init.__dsr__id = ROBOT_ID
-    DR_init.__dsr__model = ROBOT_MODEL
+    setattr(DR_init, "__dsr__id", ROBOT_ID)
+    setattr(DR_init, "__dsr__model", ROBOT_MODEL)
     
     # 클래스의 객체를 생성해 모든 작업 실행
     demo = RecycleDemo()
@@ -157,6 +162,7 @@ def main(args=None):
     # 종료 전 자원 정리
     demo.gripper.terminate()
     demo.destroy_node()
+    demo._dsr_node.destroy_node()
     rclpy.shutdown()
 
 

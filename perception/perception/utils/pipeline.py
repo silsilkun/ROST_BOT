@@ -61,14 +61,14 @@ def save_cam():
     clicked_world_xy_list = [(float(p[0]), float(p[1])) for p in points_3d]
     flat_clicked_xy = [v for xy in clicked_world_xy_list for v in xy]
 
-    # 2) 저장 (outputs 폴더)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    cv2.imwrite(COLOR_PATH, color)
-    np.save(DEPTH_PATH, depth)
-
-    # 3) detect 실행
+    # 2) detect 실행 (ID 그려진 vis 생성)
     detector.update(color, depth)
     vis, items = detector.run()
+
+    # 3) 저장 (ID가 포함된 이미지로 저장!)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    cv2.imwrite(COLOR_PATH, vis)   # ✅ color 대신 vis
+    np.save(DEPTH_PATH, depth)
 
     # 그리기용 boxes (poly)
     boxes = [it["poly"] for it in items]

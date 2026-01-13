@@ -66,11 +66,16 @@
 # =========================
 
 # 출력 폴더
-OUTPUT_DIR = "outputs"
+
+import os
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CALIB_PATH = os.path.join(BASE_DIR, "camcalib.npz")
+
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 
 # 저장 파일 경로
-COLOR_PATH = "outputs/color.jpg"
-DEPTH_PATH = "outputs/depth.npy"
-
+COLOR_PATH = os.path.join(OUTPUT_DIR, "color.jpg")
+DEPTH_PATH = os.path.join(OUTPUT_DIR, "depth.npy")
 # 캘리브레이션 파일 (프로젝트 루트에 위치)
-CALIB_PATH = "camcalib.npz"

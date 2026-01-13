@@ -4,9 +4,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 
 from depth_utils import box_center_pixel
-
-CALIB_PATH = "camcalib.npz"
-
+from settings import CALIB_PATH
 
 def long_side_angle_0_180(rect) -> float:
     box = cv2.boxPoints(rect).astype(np.float32)  # (4,2)
@@ -54,11 +52,11 @@ class DepthDBSCANVisualizer:
       }
     """
 
-    def __init__(self, calib_path=CALIB_PATH):
+    def __init__(self, camcalib=CALIB_PATH):
         self.color = None
         self.depth = None
 
-        calib = np.load(calib_path)
+        calib = np.load(camcalib)
         self.T_cam_to_work = calib["T_cam_to_work"]
         self.camera_matrix = calib["camera_matrix"]
 

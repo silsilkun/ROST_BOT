@@ -45,8 +45,8 @@ class Coordinate:
         Pw = self.T_cam_to_work @ Pc
 
         # 실환경 보정값 (하드코딩 유지)
-        Pw[0] = -Pw[0] + 81
-        Pw[1] = Pw[1] - 21
-        Pw[2] = -Pw[2] + 2.5
+        Pw[0] = -Pw[0] + 81.5
+        Pw[1] = -Pw[1] + 16.3
+        Pw[2] = -Pw[2] + 11.5
 
         return Pw

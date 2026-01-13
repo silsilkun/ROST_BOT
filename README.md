@@ -50,3 +50,6 @@ cd ~/ros2_ws
 colcon build
 source install/setup.bash
 ros2 launch robot_system_bringup system.launch.py
+
+numpy 버전: 1.25.2
+scipy 버전: 1.15.3

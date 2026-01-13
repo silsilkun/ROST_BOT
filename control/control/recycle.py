@@ -19,15 +19,16 @@ wait_offset = max(0.0, VEL - BASE_VEL) * WAIT_SEC_PER_VEL
 # 로봇팔 오프셋
 PICK_APPROACH = 150
 PICK_DESCENT = 120
-LIFT= 250
+LIFT = 250
 PLACE_APPROACH = 150
-PLACE_DESCENT = 20
+PLACE_DESCENT = 50
+LIFT_2 = 250
 # 그리퍼 오프셋
-GRAB = 500
+GRAB = 650
 RELEASE = 0
 
 # 분리수거 분류 ID
-SORTING_ID = {"PAPER", "PLASTIC", "CAN"}
+SORTING_ID = {"PAPER", "PLASTIC", "CAN", "BOX"}
 
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
@@ -38,22 +39,25 @@ class Recycle(Node):
 
         self.gripper = None
         self.gripper = GripperController(node=self, namespace = ROBOT_ID)
-
+    
     # 입력 리스트를 검증하고 작업 딕셔너리로 전환
-    def create_job(self, raw):
-        if len(raw) != 7:
-            raise ValueError(
-                "데이터 형식은 [ID, pick_x, pick_y, pick_z, place_x, place_y, place_z] 이어야 한다"
-            )
-        item_id = str(raw[0]).upper()
-        if item_id not in SORTING_ID:
-            raise ValueError(f"unsupported ID: {item_id}")
-        pick_xyz = (float(raw[1]), float(raw[2]), float(raw[3]))
-        place_xyz = (float(raw[4]), float(raw[5]), float(raw[6]))
-        return {"id": item_id, "pick": pick_xyz, "place": place_xyz}
+    def create_job(self, trash, bin):
+        item_id = str(trash[0]).upper()
+        pick_xyz = (float(trash[1]), float(trash[2]), float(trash[3]))
+        angle = (float(trash[4]))
+        place_xyz = (float(bin[0]), float(bin[1]), 140)
+        return {"id": item_id, "pick": pick_xyz, "angle": angle, "place": place_xyz}
+    
+    def angle_job(self, angle):
+        if 0.0 <= angle <= 90.0:
+            grip_angle = angle
+            return grip_angle
+        if 90.0 < angle <= 180.0:
+            grip_angle = -(180.0 - angle)
+            return grip_angle
     
     # 동작 시퀀스
-    def pap_sequence(self, pick_xyz, place_xyz):
+    def pap_sequence(self, pick_xyz, grip_angle, place_xyz):
         from DSR_ROBOT2 import (
                 movej,
                 movel,
@@ -62,6 +66,8 @@ class Recycle(Node):
                 posx,
                 wait,
                 set_robot_mode,
+                get_current_posj,
+                get_current_posx,
                 DR_BASE,
                 ROBOT_MODE_AUTONOMOUS,
             )
@@ -83,8 +89,17 @@ class Recycle(Node):
         pick_upper = posx(x1, y1, z1 + PICK_APPROACH, 90, 180, 90)
         movel(pick_upper, VEL, ACC)
 
+        # 물체 각도 만큼 회전
+        q = get_current_posj()
+        gripper_turn = posj(q[0], q[1], q[2], q[3], q[4], q[5] + grip_angle)
+        movej(gripper_turn,VEL, ACC)
+
+        # 현재 자세의 회전값을 유지
+        cur_posx, _ = get_current_posx()
+        rx, ry, rz = cur_posx[3], cur_posx[4], cur_posx[5]
+
         # pick 지점으로 하강
-        pick_lower = posx(x1, y1, z1 + PICK_DESCENT, 90, 180, 90)
+        pick_lower = posx(x1, y1, z1 + PICK_DESCENT, rx, ry, rz)
         movel(pick_lower, VEL, ACC)
 
         # pick 그리퍼 집기
@@ -92,34 +107,41 @@ class Recycle(Node):
         wait(GRAB_WAIT)
 
         # pick 이후 상단 이동
-        pick_up = posx(x1, y1, z1 + LIFT, 90, 180, 90)
+        pick_up = posx(x1, y1, z1 + LIFT, rx, ry, rz)
         movel(pick_up, VEL, ACC)
 
         # place 지점 상단으로 이동
-        place_upper = posx(x2, y2, z2 + PLACE_APPROACH, 90, 180, 90)
+        place_upper = posx(x2, y2, z2 + PLACE_APPROACH, rx, ry, rz)
         movel(place_upper, VEL, ACC)
 
         # place 지점으로 하강
-        place_lower = posx(x2, y2, z2 + PLACE_DESCENT, 90, 180, 90)
+        place_lower = posx(x2, y2, z2 + PLACE_DESCENT, rx, ry, rz)
         movel(place_lower, VEL, ACC)
 
         # place 그리퍼 놓기
         self.gripper.move(RELEASE)
         wait(RELEASE_WAIT)
 
+        # place 이후 상단 이동
+        place_lift = posx(x2, y2, z2 + LIFT_2, rx, ry, rz)
+        movel(place_lift, VEL, ACC)
+
         # HOME 위치로 이동
         home = posj(0, 0, 90, 0, 90, 0)
         movej(home, VEL, ACC)
 
     # 데이터 > 작업 순차 처리
-    def run(self, raw_jobs):
-        for raw in raw_jobs:
-            job = self.create_job(raw)
-            self.pap_sequence(job["pick"], job["place"])
+    def run(self, trash_list, bin_list):
+        for trash, bin_data in zip(trash_list, bin_list):
+            job = self.create_job(trash, bin_data)
+            ang = self.angle_job(job["angle"])
+            self.pap_sequence(job["pick"], ang, job["place"])
     
 # 테스트용 데이터
 def test_data():
-    return [["PAPER", 500.0, 300, 130.0, 400.0, 100, 130.0],]
+    trash = [["PAPER", 400, 200, 130.0, 60],]
+    bin = [[300,430],]
+    return trash, bin
 
 def main(args=None):
     rclpy.init(args=args)
@@ -127,7 +149,8 @@ def main(args=None):
     DR_init.__dsr__node = dsr_node
 
     test = Recycle()
-    test.run(test_data())
+    trash, bin = test_data()
+    test.run(trash, bin)
 
     test.destroy_node()
     dsr_node.destroy_node()

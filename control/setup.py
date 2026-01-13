@@ -24,8 +24,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'demo = control.recycle_demo:main',
+            'recycle = control.recycle:main',
             'tower = control.main:main',
+
         ],
     },
 )

@@ -1,28 +1,24 @@
+# click_points.py
 import cv2
 import numpy as np
-from coordinatetr import Coordinate
+from coordinate import Coordinate
 
-# ===============================
-# 전역 상태
-# ===============================
 depth_frame_global = None
 color_image_global = None
 current_points = []
+clicked_world_xy_list = []
 
-# ===============================
-# 프레임 업데이트
-# ===============================
+
 def update_depth_frame(frame):
     global depth_frame_global
     depth_frame_global = frame
+
 
 def update_color_image(frame):
     global color_image_global
     color_image_global = frame
 
-# ===============================
-# 마우스 클릭 콜백
-# ===============================
+
 def mouse_callback(event, x, y, flags, param):
     global current_points, depth_frame_global
     if event == cv2.EVENT_LBUTTONDOWN:
@@ -33,27 +29,45 @@ def mouse_callback(event, x, y, flags, param):
         current_points.append((x, y, depth_mm))
         print(f"Click: x={x}, y={y}, depth={depth_mm:.1f} mm")
 
-# ===============================
-# 저장 / 리셋 관련
-# ===============================
+
+class FakeDepthFrameFromNpy:
+    """
+    depth.npy(z16, mm)를 RealSense depth_frame과 동일한 인터페이스로 사용하기 위한 래퍼
+    """
+    def __init__(self, depth_z16: np.ndarray):
+        self.depth = depth_z16
+        self.h, self.w = depth_z16.shape[:2]
+
+    def get_distance(self, x: int, y: int) -> float:
+        if x < 0 or y < 0 or x >= self.w or y >= self.h:
+            return 0.0
+        d = float(self.depth[int(y), int(x)])  # z16 in mm
+        if d <= 0:
+            return 0.0
+        return d / 1000.0  # mm -> m
+
+
 def Save_Cam():
     """
-    - 클릭한 좌표를 3D world 좌표로 변환
-    - color 이미지 / depth 이미지 반환
+    저장 버튼을 누른 시점의 프레임을 스냅샷으로 고정하고,
+    누적된 클릭 포인트를 해당 depth 기준 world 좌표로 변환
     """
-    global depth_frame_global, color_image_global
+    global depth_frame_global, color_image_global, current_points
+
     if depth_frame_global is None or color_image_global is None:
         print("프레임 없음")
         return None, None, []
 
     color_image = color_image_global.copy()
-    depth_image = np.asanyarray(depth_frame_global.get_data())
+    depth_image = np.asanyarray(depth_frame_global.get_data()).copy()
+
+    fake_depth_frame = FakeDepthFrameFromNpy(depth_image)
 
     picker = Coordinate()
     points_3d = []
 
     for u, v, _ in current_points:
-        Pw = picker.pixel_to_world(u, v, depth_frame_global)
+        Pw = picker.pixel_to_world(u, v, fake_depth_frame)
         if Pw is not None:
             points_3d.append(Pw[:3])
 
@@ -64,10 +78,12 @@ def Save_Cam():
 
     return color_image, depth_image, points_3d
 
+
 def reset_points():
     global current_points
     current_points.clear()
     print("포인트 리셋 완료")
+
 
 def get_saved_points():
     return current_points

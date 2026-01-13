@@ -17,6 +17,10 @@ depth_image = None
 points_3d = []
 
 processed_result = {
+    "color": None,
+    "depth": None,
+    "points_3d": None,
+
     "vis": None,
     "boxes": None,
     "green_items": None,
@@ -30,8 +34,10 @@ processed_result = {
 def save_cam():
     """
     return:
-      color, depth, points_3d, vis, boxes, world_list,
-      clicked_world_xy_list, flat_clicked_xy, flat_world_list
+      processed_result (dict)
+      keys:
+        color, depth, points_3d, vis, boxes, world_list,
+        clicked_world_xy_list, flat_clicked_xy, flat_world_list
     """
     global color_image, depth_image, points_3d, processed_result
 
@@ -41,9 +47,15 @@ def save_cam():
     depth_image = depth
     points_3d = points  # [(X,Y,Z), ...] (클릭 기반 world)
 
+    # ✅ dict에 항상 기록 (실패해도 None으로 남고, 호출부에서 안전)
+    processed_result["color"] = color
+    processed_result["depth"] = depth
+    processed_result["points_3d"] = points_3d
+
     if color is None or depth is None:
         print("save_cam: color/depth 없음")
-        return None, None, None, None, None, None, None, None, None
+        # ✅ 튜플 None 나열 대신 dict 그대로 반환
+        return processed_result
 
     # 1-1) 클릭 world에서 XY만 뽑아 저장 + 평탄화
     clicked_world_xy_list = [(float(p[0]), float(p[1])) for p in points_3d]
@@ -103,7 +115,7 @@ def save_cam():
             it["id"], X, Y, Z, float(it["angle"])
         ])
 
-    # 5) 결과 저장
+    # 5) 결과 저장 (dict)
     processed_result["vis"] = vis
     processed_result["boxes"] = boxes
     processed_result["world_list"] = world_list
@@ -117,11 +129,13 @@ def save_cam():
         cv2.imshow("Detect Result", vis)
         cv2.waitKey(1)
 
-    #  유지 요구사항
+    # 유지 요구사항
     print("flat_world_list:", flat_world_list)
     print("flat_clicked_xy:", flat_clicked_xy)
 
-    return (
-        color, depth, points_3d, vis, boxes, world_list,
-        clicked_world_xy_list, flat_clicked_xy, flat_world_list
-    )
+    return processed_result
+'''
+result = save_cam()
+color = result["color"]
+flat_world_list = result["flat_world_list"]
+'''

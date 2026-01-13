@@ -191,11 +191,10 @@ class DepthDBSCANVisualizer:
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         boxes = []
-        roi_area = (x2 - x1) * (y2 - y1)
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            if area < roi_area * 0.05:
+            if area < 3100 :
                 continue
 
             cnt_mask = np.zeros_like(mask)

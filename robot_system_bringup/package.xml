@@ -7,6 +7,15 @@
   <maintainer email="2001sonickim@gmail.comm">eipih</maintainer>
   <license>TODO: License declaration</license>
 
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>control</exec_depend>
+  <exec_depend>perception</exec_depend>
+  <exec_depend>estimation</exec_depend>
+  <exec_depend>rost_interfaces</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

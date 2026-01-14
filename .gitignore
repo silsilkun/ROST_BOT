@@ -8,3 +8,4 @@ readme2.md
 두산프로그래밍가이드.pdf
 __pycache__/
 outputs/
+.env

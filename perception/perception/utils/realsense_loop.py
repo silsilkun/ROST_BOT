@@ -20,7 +20,14 @@ def run(
     config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
     config.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
 
-    pipeline.start(config)
+    try:
+        pipeline.start(config)
+    except RuntimeError as exc:
+        print(f"RealSense start failed ({exc}), fallback to 640x480")
+        fallback = rs.config()
+        fallback.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, fps)
+        fallback.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, fps)
+        pipeline.start(fallback)
 
     align = rs.align(rs.stream.color)
 

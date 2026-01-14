@@ -28,6 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'main = robot_system_bringup.main:main',
         ],
     },
 )

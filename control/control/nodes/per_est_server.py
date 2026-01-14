@@ -1,7 +1,7 @@
 from typing import List
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
-from perception.utils import pipeline
+from perception.utils import click_points, pipeline
 from rost_interfaces.msg import Float64Array
 from rost_interfaces.srv import PerEstToControl
 
@@ -35,6 +35,17 @@ class PerEstServer(Node):
     # 클릭된 좌표 리스트를 bin_list 형태로 변환
     def bins_from_perception(self) -> None:
         flat_clicked_xy = pipeline.processed_result.get("flat_clicked_xy")
+        if not flat_clicked_xy:
+            clicked_world_xy = pipeline.processed_result.get("clicked_world_xy_list") or []
+            if clicked_world_xy:
+                self._bin_list = [[float(x), float(y)] for x, y in clicked_world_xy]
+                return
+            clicked_pixels = click_points.get_saved_points()
+            self._bin_list = [[float(x), float(y)] for x, y, _ in clicked_pixels]
+            return
+        if flat_clicked_xy and isinstance(flat_clicked_xy[0], (list, tuple)):
+            self._bin_list = [[float(x), float(y)] for x, y in flat_clicked_xy]
+            return
         self._bin_list = [
             [float(flat_clicked_xy[i]), float(flat_clicked_xy[i + 1])]
             for i in range(0, len(flat_clicked_xy), 2)

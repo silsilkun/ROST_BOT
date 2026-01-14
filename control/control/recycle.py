@@ -27,9 +27,6 @@ LIFT_2 = 250
 GRAB = 650
 RELEASE = 0
 
-# 분리수거 분류 ID
-SORTING_ID = {"PAPER", "PLASTIC", "CAN", "BOX"}
-
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 
@@ -39,13 +36,23 @@ class Recycle(Node):
 
         self.gripper = None
         self.gripper = GripperController(node=self, namespace = ROBOT_ID)
-    
+
+    def _normalize_trash_list(self, trash_list):
+        if not trash_list:
+            return []
+        if isinstance(trash_list[0], (list, tuple)):
+            return trash_list
+        return [
+            trash_list[i:i + 5] for i in range(0, len(trash_list), 5)
+            if len(trash_list[i:i + 5]) == 5
+        ]
+
     # 입력 리스트를 검증하고 작업 딕셔너리로 전환
     def create_job(self, trash, bin):
-        item_id = str(trash[0]).upper()
-        pick_xyz = (float(trash[1]), float(trash[2]), float(trash[3]))
-        angle = (float(trash[4]))
-        place_xyz = (float(bin[0]), float(bin[1]), 140)
+        item_id = self._type_to_id(trash[0])
+        pick_xyz = (float(trash[1]) * 10.0, float(trash[2]) * 10.0, float(trash[3]) * 10.0)
+        angle = float(trash[4]) / 10.0
+        place_xyz = (float(bin[0]) * 10.0, float(bin[1]) * 10.0, 140)
         return {"id": item_id, "pick": pick_xyz, "angle": angle, "place": place_xyz}
     
     def angle_job(self, angle):
@@ -132,10 +139,64 @@ class Recycle(Node):
 
     # 데이터 > 작업 순차 처리
     def run(self, trash_list, bin_list):
-        for trash, bin_data in zip(trash_list, bin_list):
+        debug_trash = []
+        for item in trash_list:
+            if not item:
+                continue
+            scaled = [item[0]]
+            for idx, value in enumerate(item[1:], start=1):
+                if idx == 4:
+                    scaled.append(round(float(value) / 10.0, 2))
+                else:
+                    scaled.append(round(float(value) * 10.0, 2))
+            debug_trash.append(scaled)
+
+        debug_bin = []
+        for item in bin_list:
+            if not item:
+                continue
+            debug_bin.append([round(float(v) * 10.0, 2) for v in item])
+
+        print(f"[Recycle] trash_list={debug_trash}")
+        print(f"[Recycle] bin_list={debug_bin}")
+
+        
+        
+        trash_items = self._normalize_trash_list(trash_list)
+        if not trash_items or not bin_list:
+            return
+
+        type_to_bin = {}
+        next_bin_index = 0
+        for trash in trash_items:
+            item_type = self._type_to_id(trash[0])
+            if item_type not in type_to_bin:
+                if next_bin_index >= len(bin_list):
+                    continue
+                type_to_bin[item_type] = bin_list[next_bin_index]
+                next_bin_index += 1
+
+            bin_data = type_to_bin.get(item_type)
+            if not bin_data:
+                continue
+
             job = self.create_job(trash, bin_data)
             ang = self.angle_job(job["angle"])
             self.pap_sequence(job["pick"], ang, job["place"])
+            print(f"{item_type}을 분리수거 완료했습니다")
+
+    def _type_to_id(self, value):
+        mapping = {
+            0.0: "PLASTIC",
+            1.0: "CAN",
+            2.0: "PAPER",
+            3.0: "BOX",
+            -1.0: "UNKNOWN",
+        }
+        try:
+            return mapping.get(float(value), str(value).upper())
+        except (TypeError, ValueError):
+            return str(value).upper()
     
 # 테스트용 데이터
 def test_data():

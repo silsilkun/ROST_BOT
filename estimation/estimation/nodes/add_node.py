@@ -46,8 +46,9 @@ class EstimationAddNode(Node):
                 ("type_topic", "/estimation/type_id"),
                 ("output_topic", "/estimation/pickup_commands"),
                 ("unknown_type_id", -1.0),
-                ("max_age_sec", 0.5),
-                ("sync_tolerance_sec", 0.2),
+                ("max_age_sec", 20.0),
+                ("sync_tolerance_sec", 1.0),
+                ("allow_stale_coords", True),
                 ("log_throttle_sec", 2.0),
             ],
         )
@@ -59,6 +60,7 @@ class EstimationAddNode(Node):
         self.unknown_type_id = float(self.get_parameter("unknown_type_id").value)
         self.max_age_sec = float(self.get_parameter("max_age_sec").value)
         self.sync_tolerance_sec = float(self.get_parameter("sync_tolerance_sec").value)
+        self.allow_stale_coords = bool(self.get_parameter("allow_stale_coords").value)
         self.log_throttle_sec = float(self.get_parameter("log_throttle_sec").value)
 
         self._last_coords: Optional[_StampedArray] = None
@@ -121,35 +123,36 @@ class EstimationAddNode(Node):
             f"types_stamp={types.stamp_sec:.3f}"
         )
 
-        # ---- 1) Age gate (stale) ----
-        if (now_sec - coords.stamp_sec) > self.max_age_sec:
-            self._warn_throttled(
-                now_sec,
-                f"[Add] stale coords age={now_sec - coords.stamp_sec:.3f}s -> drop"
-            )
-            self._last_coords = None
-            return
-
-        if (now_sec - types.stamp_sec) > self.max_age_sec:
-            self._warn_throttled(
-                now_sec,
-                f"[Add] stale types age={now_sec - types.stamp_sec:.3f}s -> drop"
-            )
-            self._last_types = None
-            return
-
-        # ---- 2) Sync gate ----
-        dt = abs(coords.stamp_sec - types.stamp_sec)
-        if dt > self.sync_tolerance_sec:
-            self._warn_throttled(
-                now_sec,
-                f"[Add] coords/types out-of-sync dt={dt:.3f}s -> drop"
-            )
-            if coords.stamp_sec < types.stamp_sec:
+        if not self.allow_stale_coords:
+            # ---- 1) Age gate (stale) ----
+            if (now_sec - coords.stamp_sec) > self.max_age_sec:
+                self._warn_throttled(
+                    now_sec,
+                    f"[Add] stale coords age={now_sec - coords.stamp_sec:.3f}s -> drop"
+                )
                 self._last_coords = None
-            else:
+                return
+
+            if (now_sec - types.stamp_sec) > self.max_age_sec:
+                self._warn_throttled(
+                    now_sec,
+                    f"[Add] stale types age={now_sec - types.stamp_sec:.3f}s -> drop"
+                )
                 self._last_types = None
-            return
+                return
+
+            # ---- 2) Sync gate ----
+            dt = abs(coords.stamp_sec - types.stamp_sec)
+            if dt > self.sync_tolerance_sec:
+                self._warn_throttled(
+                    now_sec,
+                    f"[Add] coords/types out-of-sync dt={dt:.3f}s -> drop"
+                )
+                if coords.stamp_sec < types.stamp_sec:
+                    self._last_coords = None
+                else:
+                    self._last_types = None
+                return
 
         coords_flat = coords.data
         type_ids = types.data

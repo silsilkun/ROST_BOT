@@ -3,7 +3,7 @@ import os
 import numpy as np
 import cv2
 
-SAVE_FILE = "camcalib.npz"
+from .settings import CALIB_PATH
 
 
 class Coordinate:
@@ -14,9 +14,9 @@ class Coordinate:
         self.load_calibration()
 
     def load_calibration(self):
-        if not os.path.exists(SAVE_FILE):
-            raise FileNotFoundError(f" '{SAVE_FILE}' 파일이 없습니다.")
-        data = np.load(SAVE_FILE)
+        if not os.path.exists(CALIB_PATH):
+            raise FileNotFoundError(f" '{CALIB_PATH}' 파일이 없습니다.")
+        data = np.load(CALIB_PATH)
         self.T_cam_to_work = data["T_cam_to_work"]
         self.camera_matrix = data["camera_matrix"]
         self.dist_coeffs = data["dist_coeffs"]

@@ -7,7 +7,11 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32MultiArray
-from dotenv import find_dotenv, load_dotenv
+try:
+    from dotenv import find_dotenv, load_dotenv
+except Exception:
+    find_dotenv = None
+    load_dotenv = None
 from cv_bridge import CvBridge
 
 from estimation.utils.prompt import PromptConfig
@@ -26,7 +30,17 @@ class EstimationJudgeNode(Node):
 
     def __init__(self):
         super().__init__("estimation_judge")
-        load_dotenv(find_dotenv(usecwd=True))
+        if load_dotenv and find_dotenv:
+            env_path = None
+            for parent in [os.path.abspath(p) for p in _iter_parent_dirs(__file__)]:
+                candidate = os.path.join(parent, ".env")
+                if os.path.exists(candidate):
+                    env_path = candidate
+                    break
+            if env_path:
+                load_dotenv(env_path)
+            else:
+                load_dotenv(find_dotenv(usecwd=True))
 
         self.declare_parameters(
             namespace="",
@@ -149,6 +163,15 @@ class EstimationJudgeNode(Node):
             return
         with self._busy_lock:
             self._busy = False
+
+
+def _iter_parent_dirs(path: str):
+    cur = os.path.abspath(path)
+    while True:
+        cur = os.path.dirname(cur)
+        if not cur or cur == os.path.dirname(cur):
+            break
+        yield cur
 
 
 def main(args=None):

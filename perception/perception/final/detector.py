@@ -2,11 +2,11 @@
 import cv2
 import numpy as np
 from sklearn.cluster import DBSCAN
-
+import os
 from depth_utils import box_center_pixel
 
-CALIB_PATH = "camcalib.npz"
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CALIB_PATH = os.path.join(BASE_DIR, "camcalib.npz")
 
 def long_side_angle_0_180(rect) -> float:
     box = cv2.boxPoints(rect).astype(np.float32)  # (4,2)
@@ -71,7 +71,7 @@ class DepthDBSCANVisualizer:
         self.Z_floor = 1.5
 
         # ROI (u1, v1, u2, v2)
-        self.roi = (450, 190, 820, 440)
+        self.roi = (450, 160, 820, 440)
 
         # 작은 초록 박스 제거 기준
         self.MIN_GREEN_BOX_AREA = 250

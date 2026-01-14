@@ -3,8 +3,8 @@ import os
 import numpy as np
 import cv2
 
-SAVE_FILE = "camcalib.npz"
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SAVE_FILE = os.path.join(BASE_DIR, "camcalib.npz")
 
 class Coordinate:
     def __init__(self):

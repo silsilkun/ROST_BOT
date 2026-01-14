@@ -15,7 +15,7 @@ class ControlServer(Node):
         self.perception_srv = self.create_service(perception_to_control, 'perception_to_control', self.on_perception_request,)
         self.get_logger().info('Control Server ready: /perception_to_control')
 
-    # estimation 한테 데이터 요청
+    # estimation 쪽에 데이터 요청
     def on_estimation_request(self, request, response):
         # 리스트 데이터를 받아옴
         values = list(request.values)
@@ -25,7 +25,7 @@ class ControlServer(Node):
         response.message = 'Ok'
         return response
 
-    # perception 한테 데이터 요청
+    # perception 쪽에 데이터 요청
     def on_perception_request(self, request, response):
         # 리스트 받아와서 내부 리스트 인자를 풀어내는 작업
         values = [list(item.data) for item in request.values]

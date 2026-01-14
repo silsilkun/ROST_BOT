@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'per_est_server = perception.nodes.per_est_server:main',
         ],
     },
 )

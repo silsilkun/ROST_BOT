@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'recycle = control.recycle:main',
             'tower = control.main:main',
+            'control_client = control.nodes.control_client:main',
         ],
     },
 )

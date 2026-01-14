@@ -68,14 +68,14 @@ class DepthDBSCANVisualizer:
         self.cy = float(self.camera_matrix[1, 2])
 
         self.depth_scale = 0.001
-        self.Z_floor = 5.5
+        self.Z_floor = 1.5
 
         # ROI (u1, v1, u2, v2)
-        self.roi = (480, 230, 790, 430)
+        self.roi = (450, 190, 820, 440)
 
         # 작은 초록 박스 제거 기준
         self.MIN_GREEN_BOX_AREA = 250
-        self.MIN_GREEN_BOX_EDGE = 30
+        self.MIN_GREEN_BOX_EDGE = 20
 
         print("ROI + Depth + DBSCAN + Small Green Box Filter Ready")
 

@@ -58,8 +58,9 @@ def save_cam():
         return processed_result
 
     # 1-1) 클릭 world에서 XY만 뽑아 저장 + 평탄화
-    clicked_world_xy_list = [ [float(p[0]), float(p[1])] for p in points_3d]   
-    flat_clicked_xy = clicked_world_xy_list 
+    clicked_world_xy_list = [[float(p[0]), float(p[1])] for p in points_3d]
+
+    flat_clicked_xy = clicked_world_xy_list
 
     # 2) detect 실행 (ID 그려진 vis 생성)
     detector.update(color, depth)

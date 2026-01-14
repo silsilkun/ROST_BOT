@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 
-from rost_interfaces.srv import perception_to_estimation
+from rost_interfaces.srv import PerceptionToEstimation
 
 
 
@@ -11,7 +11,7 @@ class EstimationServer(Node):
         super().__init__('estimation_server')
         
         #서비스 생성
-        self.srv = self.create_service(perception_to_estimation, 'perception_to_estimation', self.on_request)
+        self.srv = self.create_service(PerceptionToEstimation, 'perception_to_estimation', self.on_request)
         self.get_logger().info("Estimation Server ready: /perception_to_estimation")
         
         

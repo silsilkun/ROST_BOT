@@ -3,11 +3,11 @@ import os
 import numpy as np
 import cv2
 
-import click_points
-from detector import DepthDBSCANVisualizer
-import depth_utils
-from coordinate import Coordinate
-from settings import OUTPUT_DIR, COLOR_PATH, DEPTH_PATH
+from . import click_points
+from .detector import DepthDBSCANVisualizer
+from . import depth_utils
+from .coordinate import Coordinate
+from .settings import OUTPUT_DIR, COLOR_PATH, DEPTH_PATH
 
 # detector 인스턴스 (기존과 동일)
 detector = DepthDBSCANVisualizer()
@@ -134,7 +134,9 @@ def save_cam():
     print("flat_clicked_xy:", flat_clicked_xy)
 
     return processed_result
+
 '''
+참고용 코드
 result = save_cam()
 color = result["color"]
 flat_world_list = result["flat_world_list"]

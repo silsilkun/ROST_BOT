@@ -1,7 +1,7 @@
 # main.py
-import realsense_loop
-import click_points
-import pipeline
+from . import realsense_loop
+from . import click_points
+from . import pipeline
 
 # RealSense 카메라 실행 (스페이스바 누르면 pipeline.save_cam 호출)
 realsense_loop.run(

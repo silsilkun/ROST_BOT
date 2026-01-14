@@ -1,7 +1,7 @@
 # click_points.py
 import cv2
 import numpy as np
-from coordinate import Coordinate
+from .coordinate import Coordinate
 
 depth_frame_global = None
 color_image_global = None

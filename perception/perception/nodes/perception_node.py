@@ -2,7 +2,7 @@ from perception.utils import pipeline
 from perception.utils import realsense_loop
 from perception.utils import click_points
 
-from rost_interfaces.srv import perception_to_estimation
+from rost_interfaces.srv import PerceptionToEstimation
 
 import rclpy
 from rclpy.node import Node
@@ -14,10 +14,10 @@ class PerceptionNode(Node):
 
     def __init__(self):
         super().__init__('perception_node')
-        self.srv = self.create_client(perception_to_estimation, 'perception_to_estimation')
+        self.srv = self.create_client(PerceptionToEstimation, 'perception_to_estimation')
         while not self.srv.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
-        self.req = perception_to_estimation.Request()
+        self.req = PerceptionToEstimation.Request()
 
         self.processed_result = realsense_loop.run(
                 on_save=pipeline.save_cam,

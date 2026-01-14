@@ -21,7 +21,7 @@ PICK_APPROACH = 150
 PICK_DESCENT = 120
 LIFT = 250
 PLACE_APPROACH = 150
-PLACE_DESCENT = 50
+PLACE_DESCENT = 100
 LIFT_2 = 250
 # 그리퍼 오프셋
 GRAB = 650
@@ -139,7 +139,7 @@ class Recycle(Node):
     
 # 테스트용 데이터
 def test_data():
-    trash = [["PAPER", 400, 200, 130.0, 60],]
+    trash = [["PAPER", 400, 200, 145, 50],]
     bin = [[300,430],]
     return trash, bin
 

@@ -17,12 +17,12 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Num.msg"
   "msg/Sphere.msg"
   "srv/AddThreeInts.srv"
-  "srv/perception_to_estimation.srv"
-  "srv/estimation_to_control.srv"
-  "srv/perception_to_control.srv"
-  "srv/control_to_perception.srv"
-  "srv/per_est_to_control.srv"
-  DEPENDENCIES geometry_msgs, std_msgs, sensor_msgs # Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
+  "srv/PerceptionToEstimation.srv"
+  "srv/EstimationToControl.srv"
+  "srv/PerceptionToControl.srv"
+  "srv/ControlToPerception.srv"
+  "srv/PerEstToControl.srv"
+  DEPENDENCIES geometry_msgs std_msgs sensor_msgs # Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
 )
 
 if(BUILD_TESTING)

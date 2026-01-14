@@ -1,6 +1,6 @@
 # depth_utils.py
 import numpy as np
-from coordinate import Coordinate
+from .coordinate import Coordinate
 
 
 class FakeDepthFrameFromNpy:

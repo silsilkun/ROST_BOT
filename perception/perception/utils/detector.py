@@ -3,8 +3,8 @@ import cv2
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-from depth_utils import box_center_pixel
-from settings import CALIB_PATH
+from .depth_utils import box_center_pixel
+from .settings import CALIB_PATH
 
 def long_side_angle_0_180(rect) -> float:
     box = cv2.boxPoints(rect).astype(np.float32)  # (4,2)

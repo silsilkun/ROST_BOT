@@ -2,13 +2,13 @@ import rclpy
 from rclpy.node import Node
 
 from rost_interfaces.msg import Float64Array
-from rost_interfaces.srv import per_est_to_control
+from rost_interfaces.srv import PerEstToControl
 
 
 class PerEstServer(Node):
     def __init__(self):
         super().__init__('per_est_server')
-        self.srv = self.create_service(per_est_to_control, 'per_est_to_control', self.on_request)
+        self.srv = self.create_service(PerEstToControl, 'per_est_to_control', self.on_request)
         self.get_logger().info('Perception+Estimation Server ready: /per_est_to_control')
 
     def on_request(self, request, response):

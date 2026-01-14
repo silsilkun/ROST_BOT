@@ -59,12 +59,8 @@ def save_cam():
 
     # 1-1) 클릭 world에서 XY만 뽑아 저장 + 평탄화
     clicked_world_xy_list = [[float(p[0]), float(p[1])] for p in points_3d]
-
-<<<<<<< HEAD:perception/perception/utils/pipeline.py
-=======
     flat_clicked_xy = clicked_world_xy_list
 
->>>>>>> feature/perception-승준:perception/perception/final/pipeline.py
     # 2) detect 실행 (ID 그려진 vis 생성)
     detector.update(color, depth)
     vis, items = detector.run()

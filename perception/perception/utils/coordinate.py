@@ -1,6 +1,7 @@
 # coordinate.py
 import os
 import numpy as np
+import cv2
 
 SAVE_FILE = "camcalib.npz"
 
@@ -36,17 +37,30 @@ class Coordinate:
         fx, fy = self.camera_matrix[0, 0], self.camera_matrix[1, 1]
         cx, cy = self.camera_matrix[0, 2], self.camera_matrix[1, 2]
 
-        # pixel -> camera
-        Yc = (u - cx) * depth_cm / fx
-        Xc = (v - cy) * depth_cm / fy
+        # ===============================
+        # 🔥 distortion 보정 추가된 부분
+        # ===============================
+        pts = np.array([[[u, v]]], dtype=np.float32)
+        undist = cv2.undistortPoints(
+            pts,
+            self.camera_matrix,
+            self.dist_coeffs,
+            P=self.camera_matrix
+        )
+        u_corr, v_corr = undist[0, 0]
+        # ===============================
+
+        # pixel -> camera (기존 수식 그대로, 입력만 보정됨)
+        Yc = (u_corr - cx) * depth_cm / fx
+        Xc = (v_corr - cy) * depth_cm / fy
         Zc = depth_cm
 
         Pc = np.array([Xc, Yc, Zc, 1.0])
         Pw = self.T_cam_to_work @ Pc
 
         # 실환경 보정값 (하드코딩 유지)
-        Pw[0] = -Pw[0] + 81
-        Pw[1] = Pw[1] - 21
-        Pw[2] = -Pw[2] + 2.5
+        Pw[0] = -Pw[0] + 81.5
+        Pw[1] = -Pw[1] + 15.9
+        Pw[2] = -Pw[2] + 2
 
         return Pw

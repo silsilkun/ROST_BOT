@@ -6,7 +6,6 @@ from coordinate import Coordinate
 depth_frame_global = None
 color_image_global = None
 current_points = []
-clicked_world_xy_list = []
 
 
 def update_depth_frame(frame):

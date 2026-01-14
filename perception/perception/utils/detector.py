@@ -66,14 +66,14 @@ class DepthDBSCANVisualizer:
         self.cy = float(self.camera_matrix[1, 2])
 
         self.depth_scale = 0.001
-        self.Z_floor = 5.5
+        self.Z_floor = 1.5
 
         # ROI (u1, v1, u2, v2)
-        self.roi = (480, 230, 790, 430)
+        self.roi = (450, 190, 820, 440)
 
         # 작은 초록 박스 제거 기준
         self.MIN_GREEN_BOX_AREA = 250
-        self.MIN_GREEN_BOX_EDGE = 30
+        self.MIN_GREEN_BOX_EDGE = 20
 
         print("ROI + Depth + DBSCAN + Small Green Box Filter Ready")
 
@@ -189,11 +189,10 @@ class DepthDBSCANVisualizer:
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         boxes = []
-        roi_area = (x2 - x1) * (y2 - y1)
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            if area < roi_area * 0.05:
+            if area < 3100 :
                 continue
 
             cnt_mask = np.zeros_like(mask)

@@ -10,32 +10,28 @@ class ControlServer(Node):
         super().__init__('control_server')
 
         # 서비스 생성
-        self.estimation_srv = self.create_service(estimation_to_control, 'estimation_to_control', self.on_request,)
+        self.estimation_srv = self.create_service(estimation_to_control, 'estimation_to_control', self.on_estimation_request,)
         self.get_logger().info('Control Server ready: /estimation_to_control')
         self.perception_srv = self.create_service(perception_to_control, 'perception_to_control', self.on_perception_request,)
         self.get_logger().info('Control Server ready: /perception_to_control')
 
     # estimation 한테 데이터 요청
     def on_estimation_request(self, request, response):
+        # 리스트 데이터를 받아옴
         values = list(request.values)
-        # 리스트의 인자가 5개가 아니면 오류 처리
-        if len(values) != 5:
-            self.get_logger().info(f'Received request: expected 5 values, got {len(values)}')
-            response.success = False
-            response.message = f'Expected 5 values, got {len(values)}'
-            return response
 
-        self.get_logger().info(f'Received request: values={values}')
+        self.get_logger().info(f'Received request: value_count={len(values)}, values={values}')
         response.success = True
         response.message = 'Ok'
         return response
 
     # perception 한테 데이터 요청
     def on_perception_request(self, request, response):
-        nested_values = [list(item.data) for item in request.values]
-        inner_lengths = [len(item) for item in nested_values]
+        # 리스트 받아와서 내부 리스트 인자를 풀어내는 작업
+        values = [list(item.data) for item in request.values]
+        value_len = [len(item) for item in values]
 
-        self.get_logger().info(f'Received perception data: outer_len={len(nested_values)}, inner_lens={inner_lengths}')
+        self.get_logger().info(f'Received perception data: outer_len={len(values)}, inner_lens={value_len}')
         response.success = True
         response.message = 'Ok'
         return response

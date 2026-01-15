@@ -17,22 +17,30 @@ from perception.utils import click_points, pipeline, realsense_loop
 from rost_interfaces.srv import PerEstToControl
 
 
-def _run_perception_loop() -> None:
+def _run_perception_loop(start_event: threading.Event, stop_event: threading.Event) -> None:
+    def _on_confirm() -> None:
+        if pipeline.processed_result.get("color") is None:
+            pipeline.save_cam()
+        start_event.set()
+
     realsense_loop.run(
         on_save=pipeline.save_cam,
         on_reset=click_points.reset_points,
         on_click=click_points.mouse_callback,
+        on_confirm=_on_confirm,
         update_depth_frame=click_points.update_depth_frame,
         update_color_image=click_points.update_color_image,
         get_points=click_points.get_saved_points,
     )
     if pipeline.processed_result.get("color") is None:
         pipeline.save_cam()
+    stop_event.set()
 
 
 class PerceptionPublisher(Node):
-    def __init__(self):
+    def __init__(self, start_event: threading.Event):
         super().__init__('perception_publisher')
+        self._start_event = start_event
         qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -41,21 +49,30 @@ class PerceptionPublisher(Node):
         self._coords_pub = self.create_publisher(
             Float32MultiArray, '/perception/waste_coordinates', qos
         )
-        self._image_pub = self.create_publisher(
+        self._image_raw_pub = self.create_publisher(
             Image, '/perception/waste_image_raw', qos
+        )
+        self._image_vis_pub = self.create_publisher(
+            Image, '/perception/waste_image_vis', qos
         )
         self._bridge = CvBridge()
         self._stage = "coords"
         self._missing_logged = False
+        self._waiting_logged = False
         self._timer = self.create_timer(0.5, self._try_publish)
 
     def _try_publish(self) -> None:
         if self._stage == "done":
             return
+        if not self._start_event.is_set():
+            if not self._waiting_logged:
+                self.get_logger().info("waiting for enter to start estimation publish")
+                self._waiting_logged = True
+            return
         coords = pipeline.processed_result.get("flat_world_list")
         color = pipeline.processed_result.get("color")
-        image = color if color is not None else pipeline.processed_result.get("vis")
-        if coords is None or image is None:
+        vis = pipeline.processed_result.get("vis")
+        if coords is None or color is None:
             if not self._missing_logged:
                 self.get_logger().warn("perception results missing; cannot publish")
                 self._missing_logged = True
@@ -71,9 +88,16 @@ class PerceptionPublisher(Node):
             self._stage = "image"
             return
 
-        image_msg = self._bridge.cv2_to_imgmsg(image, encoding="bgr8")
-        self._image_pub.publish(image_msg)
-        self.get_logger().info("published perception image")
+        raw_msg = self._bridge.cv2_to_imgmsg(color, encoding="bgr8")
+        self._image_raw_pub.publish(raw_msg)
+        if vis is None:
+            if not self._missing_logged:
+                self.get_logger().warn("vis image missing; publishing raw only")
+                self._missing_logged = True
+        else:
+            vis_msg = self._bridge.cv2_to_imgmsg(vis, encoding="bgr8")
+            self._image_vis_pub.publish(vis_msg)
+        self.get_logger().info("published perception images (raw/vis)")
         self._stage = "done"
         self._timer.cancel()
 
@@ -139,7 +163,9 @@ class ControlRunner(Node):
 def main(args=None) -> None:
     rclpy.init(args=args)
 
-    _run_perception_loop()
+    start_event = threading.Event()
+    stop_event = threading.Event()
+    done_event = threading.Event()
 
     dsr_node = rclpy.create_node('dsr_node', namespace=ROBOT_ID)
     DR_init.__dsr__node = dsr_node
@@ -148,8 +174,7 @@ def main(args=None) -> None:
     server_node = PerEstServer()
     add_node = EstimationAddNode()
     judge_node = EstimationJudgeNode()
-    perception_pub = PerceptionPublisher()
-    done_event = threading.Event()
+    perception_pub = PerceptionPublisher(start_event)
     runner_node = ControlRunner(recycle_node, done_event)
 
     executor = MultiThreadedExecutor()
@@ -161,23 +186,31 @@ def main(args=None) -> None:
     executor.add_node(perception_pub)
     executor.add_node(runner_node)
 
-    try:
-        while rclpy.ok() and not done_event.is_set():
-            executor.spin_once(timeout_sec=0.1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        result = runner_node.pop_result()
-        if result:
-            trash_list, bin_list = result
-            recycle_node.run(trash_list, bin_list)
-        judge_node._executor.shutdown(wait=False)
-        executor.shutdown()
-        runner_node.destroy_node()
-        perception_pub.destroy_node()
-        judge_node.destroy_node()
-        add_node.destroy_node()
-        server_node.destroy_node()
-        recycle_node.destroy_node()
-        dsr_node.destroy_node()
-        rclpy.shutdown()
+    def _spin_executor() -> None:
+        try:
+            while rclpy.ok() and not done_event.is_set() and not stop_event.is_set():
+                executor.spin_once(timeout_sec=0.1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            result = runner_node.pop_result()
+            if result:
+                trash_list, bin_list = result
+                recycle_node.run(trash_list, bin_list)
+            judge_node._executor.shutdown(wait=False)
+            executor.shutdown()
+            runner_node.destroy_node()
+            perception_pub.destroy_node()
+            judge_node.destroy_node()
+            add_node.destroy_node()
+            server_node.destroy_node()
+            recycle_node.destroy_node()
+            dsr_node.destroy_node()
+            rclpy.shutdown()
+
+    spin_thread = threading.Thread(target=_spin_executor)
+    spin_thread.start()
+
+    _run_perception_loop(start_event, stop_event)
+    stop_event.set()
+    spin_thread.join()

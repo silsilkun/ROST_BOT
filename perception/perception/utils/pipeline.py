@@ -59,6 +59,7 @@ def save_cam():
 
     # 1-1) 클릭 world에서 XY만 뽑아 저장 + 평탄화
     clicked_world_xy_list = [[float(p[0]), float(p[1])] for p in points_3d]
+
     flat_clicked_xy = clicked_world_xy_list
 
     # 2) detect 실행 (ID 그려진 vis 생성)
@@ -86,7 +87,20 @@ def save_cam():
         if obj_type == "green":
             cx, cy = depth_utils.box_center_pixel(it["poly"])
             Pw = coord.pixel_to_world(cx, cy, fake_depth)
-            ang = float(it["angle"])
+
+            # 1) detector에서 온 긴변 각도 (0~180, 90이 수직)
+            angle_long = float(it["angle"])
+
+            # 2) 수평 기준 signed 각도 (-90 ~ +90), 오른쪽 + / 왼쪽 -
+            angle_signed = angle_long
+
+            # 3) 동치각 정리(안정성): 0~180 -> -90~+90
+            if angle_signed > 90.0:
+                angle_signed -= 180.0
+
+            ang = angle_signed
+
+                        
         else:
             # blue: 안전 탐색 + angle=0.0
             Pw = depth_utils.blue_rect_to_world_safe(
@@ -134,9 +148,7 @@ def save_cam():
     print("flat_clicked_xy:", flat_clicked_xy)
 
     return processed_result
-
 '''
-참고용 코드
 result = save_cam()
 color = result["color"]
 flat_world_list = result["flat_world_list"]

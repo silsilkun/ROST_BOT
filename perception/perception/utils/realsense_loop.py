@@ -11,6 +11,7 @@ def run(
     on_save=None,
     on_reset=None,
     on_click=None,
+    on_confirm=None,
     update_depth_frame=None,
     update_color_image=None,
     get_points=None,
@@ -31,7 +32,7 @@ def run(
 
     align = rs.align(rs.stream.color)
 
-    print("스페이스바: 이미지 저장 | r: 리셋 | esc: 종료")
+    print("스페이스바: 이미지 저장 | r: 리셋 | enter: 시작 | esc: 종료")
 
     window_name = "RealSense Color"
     cv2.namedWindow(window_name)
@@ -69,6 +70,8 @@ def run(
                 on_reset()
             elif key == ord(" ") and on_save:
                 on_save()
+            elif key in (10, 13) and on_confirm:
+                on_confirm()
             elif key == 27:  # ESC
                 break
 

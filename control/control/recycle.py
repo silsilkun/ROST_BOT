@@ -12,19 +12,19 @@ ACC = 50
 
 BASE_VEL = 20.0
 MAX_VEL = 100.0
-WAIT_SEC_PER_VEL = 0.02
+WAIT_SEC_PER_VEL = 0.03
 
 VEL = min(VEL, MAX_VEL)
 wait_offset = max(0.0, VEL - BASE_VEL) * WAIT_SEC_PER_VEL
 # 로봇팔 오프셋
 PICK_APPROACH = 150
-PICK_DESCENT = 120
+PICK_DESCENT = 90
 LIFT = 250
-PLACE_APPROACH = 150
-PLACE_DESCENT = 100
+PLACE_APPROACH = 250
+PLACE_DESCENT = 130
 LIFT_2 = 250
 # 그리퍼 오프셋
-GRAB = 650
+GRAB = 500
 RELEASE = 0
 
 DR_init.__dsr__id = ROBOT_ID
@@ -50,18 +50,14 @@ class Recycle(Node):
     # 입력 리스트를 검증하고 작업 딕셔너리로 전환
     def create_job(self, trash, bin):
         item_id = self._type_to_id(trash[0])
-        pick_xyz = (float(trash[1]) * 10.0, float(trash[2]) * 10.0, float(trash[3]) * 10.0)
-        angle = float(trash[4]) / 10.0
+        if float(trash[0]) == 0.0:
+            z = 160.0
+        else:
+            z = float(trash[3]) * 10.0
+        pick_xyz = (float(trash[1]) * 10.0, float(trash[2]) * 10.0, z)
+        angle = float(trash[4])
         place_xyz = (float(bin[0]) * 10.0, float(bin[1]) * 10.0, 140)
         return {"id": item_id, "pick": pick_xyz, "angle": angle, "place": place_xyz}
-    
-    def angle_job(self, angle):
-        if 0.0 <= angle <= 90.0:
-            grip_angle = angle
-            return grip_angle
-        if 90.0 < angle <= 180.0:
-            grip_angle = -(180.0 - angle)
-            return grip_angle
     
     # 동작 시퀀스
     def pap_sequence(self, pick_xyz, grip_angle, place_xyz):
@@ -181,8 +177,7 @@ class Recycle(Node):
                 continue
 
             job = self.create_job(trash, bin_data)
-            ang = self.angle_job(job["angle"])
-            self.pap_sequence(job["pick"], ang, job["place"])
+            self.pap_sequence(job["pick"], job["angle"], job["place"])
             print(f"{item_type}을 분리수거 완료했습니다")
 
     def _type_to_id(self, value):

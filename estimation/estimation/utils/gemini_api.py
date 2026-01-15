@@ -18,9 +18,13 @@ class GeminiClient:
         self.force_json_mime = bool(force_json_mime)
 
     def generate(self, prompt: str, image_bytes: bytes, mime_type: str) -> str:
+        """Backwards-compatible single-image wrapper."""
+        return self.generate_multi(prompt, [(image_bytes, mime_type)])
+
+    def generate_multi(self, prompt: str, images: list[tuple[bytes, str]]) -> str:
         """
         Input:
-          - prompt(str), image_bytes(bytes), mime_type(str)
+          - prompt(str), images[(image_bytes, mime_type), ...]
         Output:
           - model output text (string). (JSON-only는 prompt에서 강제)
         Failure path:
@@ -31,7 +35,13 @@ class GeminiClient:
         if not self.api_key:
             raise ValueError("API key is missing (env: GEMINI_API_KEY)")
 
-        encoded = base64.b64encode(image_bytes).decode("ascii")
+        if not images:
+            raise ValueError("Images list is empty")
+
+        parts = [{"text": prompt}]
+        for img_bytes, img_mime in images:
+            encoded = base64.b64encode(img_bytes).decode("ascii")
+            parts.append({"inlineData": {"mimeType": img_mime, "data": encoded}})
 
         generation_cfg: Dict[str, Any] = {
             "temperature": self.temp,
@@ -44,10 +54,7 @@ class GeminiClient:
         payload = {
             "contents": [{
                 "role": "user",
-                "parts": [
-                    {"text": prompt},
-                    {"inlineData": {"mimeType": mime_type, "data": encoded}},
-                ],
+                "parts": parts,
             }],
             "generationConfig": generation_cfg,
         }

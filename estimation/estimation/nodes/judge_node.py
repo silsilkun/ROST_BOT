@@ -46,7 +46,8 @@ class EstimationJudgeNode(Node):
             namespace="",
             parameters=[
                 ("coords_topic", "/perception/waste_coordinates"),
-                ("image_topic", "/perception/waste_image_raw"),
+                ("image_topic_raw", "/perception/waste_image_raw"),
+                ("image_topic_vis", "/perception/waste_image_vis"),
                 ("output_topic", "/estimation/type_id"),
                 ("unknown_type_id", -1.0),
                 ("max_age_sec", 1.0),
@@ -56,7 +57,8 @@ class EstimationJudgeNode(Node):
         )
 
         self.coords_topic = self.get_parameter("coords_topic").value
-        self.image_topic = self.get_parameter("image_topic").value
+        self.image_topic_raw = self.get_parameter("image_topic_raw").value
+        self.image_topic_vis = self.get_parameter("image_topic_vis").value
         self.output_topic = self.get_parameter("output_topic").value
         self.unknown_type_id = float(self.get_parameter("unknown_type_id").value)
         self.max_age_sec = float(self.get_parameter("max_age_sec").value)
@@ -74,11 +76,16 @@ class EstimationJudgeNode(Node):
         # Publishers/Subscribers
         self.pub = self.create_publisher(Float32MultiArray, self.output_topic, 10)
         self.create_subscription(Float32MultiArray, self.coords_topic, self._on_coords, 10)
-        self.create_subscription(Image, self.image_topic, self._on_image, 10)
+        self.create_subscription(Image, self.image_topic_raw, self._on_image_raw, 10)
+        self.create_subscription(Image, self.image_topic_vis, self._on_image_vis, 10)
 
         # Cache
         self._last_coords = None               # List[float], len=5N
         self._last_coords_time = None          # rclpy.time.Time
+        self._last_raw_bgr = None
+        self._last_vis_bgr = None
+        self._last_raw_time = None
+        self._last_vis_time = None
 
         # Async inference (Control/Estimator executor block 방지)
         self._executor = ThreadPoolExecutor(max_workers=1)
@@ -86,7 +93,8 @@ class EstimationJudgeNode(Node):
         self._busy = False
 
         self.get_logger().info(
-            f"[Judge] Ready. coords={self.coords_topic} + image={self.image_topic}(bgr8) -> {self.output_topic}"
+            f"[Judge] Ready. coords={self.coords_topic} + "
+            f"raw={self.image_topic_raw} vis={self.image_topic_vis} (bgr8) -> {self.output_topic}"
         )
 
     # ---------- Input 1: Coordinates ----------
@@ -101,8 +109,30 @@ class EstimationJudgeNode(Node):
         self._last_coords = data
         self._last_coords_time = self.get_clock().now()
 
-    # ---------- Input 2: Image(bgr8) ----------
-    def _on_image(self, msg: Image) -> None:
+    # ---------- Input 2: Raw Image(bgr8) ----------
+    def _on_image_raw(self, msg: Image) -> None:
+        try:
+            self._last_raw_bgr = ros_image_to_bgr_numpy(self.bridge, msg)
+        except Exception as e:
+            self.get_logger().error(f"[Judge] raw ros->bgr failed: {e}")
+            self._last_raw_bgr = None
+            return
+        self._last_raw_time = self.get_clock().now()
+        self._maybe_infer()
+
+    # ---------- Input 3: Vis Image(bgr8) ----------
+    def _on_image_vis(self, msg: Image) -> None:
+        try:
+            self._last_vis_bgr = ros_image_to_bgr_numpy(self.bridge, msg)
+        except Exception as e:
+            self.get_logger().error(f"[Judge] vis ros->bgr failed: {e}")
+            self._last_vis_bgr = None
+            return
+        self._last_vis_time = self.get_clock().now()
+        self._maybe_infer()
+
+    # ---------- Input gate ----------
+    def _maybe_infer(self) -> None:
         # coords 준비 여부
         if self._last_coords is None or self._last_coords_time is None:
             self.get_logger().warn("[Judge] image arrived but coords not ready, drop")
@@ -117,6 +147,9 @@ class EstimationJudgeNode(Node):
             )
             return
 
+        if self._last_raw_bgr is None or self._last_vis_bgr is None:
+            return
+
         # busy-drop (queue 무한증가 방지)
         if self.drop_if_busy:
             with self._busy_lock:
@@ -125,17 +158,10 @@ class EstimationJudgeNode(Node):
                     return
                 self._busy = True
 
-        # ROS Image(bgr8) -> numpy(BGR uint8)
-        try:
-            bgr = ros_image_to_bgr_numpy(self.bridge, msg)
-        except Exception as e:
-            self.get_logger().error(f"[Judge] ros->bgr failed: {e}")
-            self._clear_busy()
-            return
-
         # numpy(BGR) -> JPEG bytes
-        img_bytes = bgr_numpy_to_jpeg_bytes(bgr, jpeg_quality=self.jpeg_quality)
-        if img_bytes is None:
+        raw_bytes = bgr_numpy_to_jpeg_bytes(self._last_raw_bgr, jpeg_quality=self.jpeg_quality)
+        vis_bytes = bgr_numpy_to_jpeg_bytes(self._last_vis_bgr, jpeg_quality=self.jpeg_quality)
+        if raw_bytes is None or vis_bytes is None:
             self.get_logger().error("[Judge] bgr->jpeg failed, drop")
             self._clear_busy()
             return
@@ -143,15 +169,18 @@ class EstimationJudgeNode(Node):
         # N은 coords 기반으로 결정 (expected_count 제거)
         expected_cnt = len(self._last_coords) // 5
 
-        # Async inference
-        fut = self._executor.submit(self._infer_and_publish, img_bytes, expected_cnt)
+        # Async inference (raw first, vis second)
+        images = [
+            (raw_bytes, "image/jpeg"),
+            (vis_bytes, "image/jpeg"),
+        ]
+        fut = self._executor.submit(self._infer_and_publish, images, expected_cnt)
         fut.add_done_callback(lambda _f: self._clear_busy())
 
     # ---------- Core ----------
-    def _infer_and_publish(self, img_bytes: bytes, expected_cnt: int) -> None:
+    def _infer_and_publish(self, images: list[tuple[bytes, str]], expected_cnt: int) -> None:
         ids = self.logic.run_inference(
-            img_bytes,
-            "image/jpeg",
+            images,
             expected_cnt,
             self.unknown_type_id
         )

@@ -13,11 +13,11 @@ class EstimationLogic:
             max_tokens=self.cfg.default_max_tokens,
         )
 
-    def run_inference(self, img_bytes: bytes, mime_type: str, expected_cnt: int, unknown_id: float) -> list[float]:
-        """이미지를 받아 추론 후 ID 리스트 반환 (항상 길이=expected_cnt)."""
+    def run_inference(self, images: list[tuple[bytes, str]], expected_cnt: int, unknown_id: float) -> list[float]:
+        """이미지들을 받아 추론 후 ID 리스트 반환 (항상 길이=expected_cnt)."""
         try:
             prompt = self.cfg.get_prompt(expected_cnt)
-            resp_text = self.client.generate(prompt, img_bytes, mime_type)
+            resp_text = self.client.generate_multi(prompt, images)
         except Exception as e:
             # 상위(Node)에서 logger로 바꾸는 것을 권장
             print(f"[Logic Error] Gemini API failed: {e}")

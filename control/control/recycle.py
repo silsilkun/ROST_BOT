@@ -153,8 +153,23 @@ class Recycle(Node):
                 continue
             debug_bin.append([round(float(v) * 10.0, 2) for v in item])
 
-        print(f"[Recycle] trash_list={debug_trash}")
-        print(f"[Recycle] bin_list={debug_bin}")
+        print("[Recycle]")
+        print("trash_list=[")
+        for item in debug_trash:
+            print(f"{item},")
+        if debug_trash:
+            print("]")
+        else:
+            print("]")
+
+        print("[Recycle]")
+        print("bin_list=[")
+        for item in debug_bin:
+            print(f"{item},")
+        if debug_bin:
+            print("]")
+        else:
+            print("]")
 
         
         

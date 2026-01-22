@@ -64,7 +64,7 @@ class Recycle(Node):
         return None, None
 
     # trash_list -> 5개씩 묶인 2차원 리스트로 재정의
-    def _normalize_trash_list(self, trash_list):
+    def normalize_trash_list(self, trash_list):
         if not trash_list:
             return []
         if isinstance(trash_list[0], (list, tuple)):
@@ -76,13 +76,17 @@ class Recycle(Node):
 
     # 입력 리스트를 검증하고 작업 딕셔너리로 전환
     def create_job(self, trash, bin):
-        item_id = self.type_id(trash[0])
+        item_id = self.type_id(trash[0]) # type이 플라스틱일때 높이값 고정 그 외에는 그대로
         if float(trash[0]) == 0.0:
             z = 160.0
         else:
             z = float(trash[3]) * 10.0
+
+        # 데이터값 로봇팔 기준으로 변경
         pick_xyz = (float(trash[1]) * 10.0, float(trash[2]) * 10.0, z)
         angle = float(trash[4])
+
+        # type이 PLASTIC일 경우 그리퍼값 고정
         grab_offset = 220 if float(trash[0]) == 0.0 else 0
         place_xyz = (float(bin[0]) * 10.0, float(bin[1]) * 10.0, 140)
         return {"id": item_id, "pick": pick_xyz, "angle": angle, "place": place_xyz, "grab_offset": grab_offset}
@@ -125,7 +129,7 @@ class Recycle(Node):
         gripper_turn = posj(q[0], q[1], q[2], q[3], q[4], q[5] + grip_angle)
         movej(gripper_turn,VEL, ACC)
 
-        # 현재 자세의 회전값을 유지
+        # 현재 자세의 회전값을 유지 ( 여기선 그리퍼가 수직으로 아래를 유지하기 위함 )
         cur_posx, _ = self.get_posx(get_current_posx, wait)
         if cur_posx is None:
             self.get_logger().error("get_current_posx returned empty data; aborting sequence")
@@ -167,7 +171,7 @@ class Recycle(Node):
     # 로봇팔 작업 순서
     def run(self, trash_list, bin_list):
 
-        # trash_list , bin_list 좌표값 디버깅
+        # 받아오는 데이터 trash_list , bin_list 좌표값 디버깅
         debug_trash = []
         for item in trash_list:
             if not item:
@@ -199,21 +203,24 @@ class Recycle(Node):
         print("]")
 
         # 처리할 정보가 없으면 작업 중단
-        trash_items = self._normalize_trash_list(trash_list)
+        trash_items = self.normalize_trash_list(trash_list)
         if not trash_items or not bin_list:
             return
 
-        # type별로 bin을 하나씩 매청 같을 시 같은 bin으로 계속 처리
+        # type별로 bin을 하나씩 매칭 같을 시 같은 bin으로 계속 처리
         type_to_bin = {}
         next_bin_index = 0
         for trash in trash_items:
             item_type = self.type_id(trash[0])
+
+            # 타입이 처음 나오면 다음 bin 할당, bin이 부족하면 처리안함
             if item_type not in type_to_bin:
                 if next_bin_index >= len(bin_list):
                     continue
                 type_to_bin[item_type] = bin_list[next_bin_index]
                 next_bin_index += 1
 
+            # 해당 타입이 매핑될 bin이 없으면 처리하지 않음
             bin_data = type_to_bin.get(item_type)
             if not bin_data:
                 continue

@@ -22,6 +22,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PerceptionToControl.srv"
   "srv/ControlToPerception.srv"
   "srv/PerEstToControl.srv"
+  "action/circulation.action"
   DEPENDENCIES geometry_msgs std_msgs sensor_msgs # Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
 )
 

@@ -3,6 +3,7 @@ from perception.utils import realsense_loop
 from perception.utils import click_points
 
 from rost_interfaces.srv import PerceptionToEstimation
+from rost_interfaces.action import circulation.action
 
 import rclpy
 from rclpy.node import Node

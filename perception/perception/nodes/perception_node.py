@@ -17,6 +17,9 @@ class PerceptionNode(Node):
     def __init__(self):
         super().__init__('perception_node')
 
+        def Camera_Process(self):
+            pass
+
         # Create an action client for the Circulation action
         self.action_client = ActionClient(self, Circulation, 'circulation_action')
         # Create action client definitions
@@ -74,11 +77,6 @@ class PerceptionNode(Node):
             except Exception as e:
                 self.get_logger().error(f"Service call failed: {e}")
         # End of service client definitions
-
-
-# Perception processing function
-def data_to_send_request():
-    pass
 
 
 def main(args=None):

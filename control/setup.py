@@ -26,6 +26,8 @@ setup(
         'console_scripts': [
             'recycle = control.recycle:main',
             'tower = control.main:main',
+            'move = control.moving_test:main',
+            'pos = control.pos:main',
         ],
     },
 )

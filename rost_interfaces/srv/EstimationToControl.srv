@@ -1,4 +1,3 @@
 float64[] values
 ---
-bool success
-string message
+string success_message

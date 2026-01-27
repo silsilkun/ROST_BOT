@@ -18,3 +18,10 @@
 - The main control logic lives under control/nodes, with the primary client in control_client.py.
 - The gripper is controlled via gripper_drl_controller.py and used together with the Doosan arm.
 - There is no teaching pendant in this environment; the robot arm is controlled via computer communication only.
+- Joint limits (deg):
+  - J1: -360 to 360
+  - J2: -95 to 95
+  - J3: -135 to 135
+  - J4: -360 to 360
+  - J5: -135 to 135
+  - J6: -360 to 360

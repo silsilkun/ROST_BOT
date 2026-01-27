@@ -24,8 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            "add = estimation.nodes.add_node:main",
-            "judge = estimation.nodes.judge_node:main",
+            "main = estimation.nodes.main_node:main",
+            "test = estimation.nodes.standalone_test_node:main",
         ],
     },
 )

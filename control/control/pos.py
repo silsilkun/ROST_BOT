@@ -21,7 +21,6 @@ def main(args=None):
 
         posx, sol = get_current_posx()
         posj = get_current_posj()
-
         print("Current posx:", _format_list(posx))
         print("Solution space:", sol)
         print("Current posj:", _format_list(posj))

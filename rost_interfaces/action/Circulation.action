@@ -1,8 +1,5 @@
-# Goal (시작 신호)
 string start_signal
 ---
-# Result (종료 신호)
 string end_signal
 ---
-# Feedback (진행 상태)
 string status_signal

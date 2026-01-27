@@ -1,9 +1,10 @@
 # coordinate.py
+from importlib.resources import files
 import os
 import numpy as np
 import cv2
 
-SAVE_FILE = "camcalib.npz"
+SAVE_FILE = files("perception") / "utils" / "camcalib.npz"
 
 
 class Coordinate:

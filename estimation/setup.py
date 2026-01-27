@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             "add = estimation.nodes.add_node:main",
             "judge = estimation.nodes.judge_node:main",
+            "estimation_node = estimation.nodes.estimation_node:main",
         ],
     },
 )

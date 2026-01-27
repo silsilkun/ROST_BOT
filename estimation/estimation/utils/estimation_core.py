@@ -7,7 +7,6 @@ from typing import List, Optional
 
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float32MultiArray
 from dotenv import find_dotenv, load_dotenv
 from cv_bridge import CvBridge
 
@@ -15,6 +14,11 @@ from estimation.utils.prompt import PromptConfig
 from estimation.utils.logic import EstimationLogic
 from estimation.utils.utils import ros_image_to_bgr_numpy, bgr_numpy_to_jpeg_bytes
 from estimation.utils.estimation_ops import ok_coords, count_from_coords, sanitize_ids, pack_pickup_commands
+from rost_interfaces.srv import (
+    EstimationToControl,
+    PerceptionCoordsToEstimation,
+    PerceptionToEstimation,
+)
 
 
 class EstimationMainNode(Node):
@@ -26,34 +30,41 @@ class EstimationMainNode(Node):
         self.declare_parameters(
             "",
             [
-                ("coords_topic", "/perception/waste_coordinates"),
-                ("image_topic", "/perception/waste_image_raw"),
-                ("output_topic", "/estimation/pickup_commands"),
+                ("coords_service", "/perception/waste_coordinates"),
+                ("image_service", "/perception/waste_image_raw"),
+                ("control_service", "/control/pickup_commands"),
                 ("unknown_type_id", -1.0),
                 ("max_age_sec", 1.0),
                 ("sync_tolerance_sec", 0.25),
                 ("drop_if_busy", True),
                 ("jpeg_quality", 90),
                 ("log_throttle_sec", 2.0),
+                ("control_wait_timeout_sec", 2.0),
             ],
         )
         gp = self.get_parameter
-        self.coords_topic = gp("coords_topic").value
-        self.image_topic = gp("image_topic").value
-        self.output_topic = gp("output_topic").value
+        self.coords_service = gp("coords_service").value
+        self.image_service = gp("image_service").value
+        self.control_service = gp("control_service").value
         self.unknown_type_id = float(gp("unknown_type_id").value)
         self.max_age_sec = float(gp("max_age_sec").value)
         self.sync_tolerance_sec = float(gp("sync_tolerance_sec").value)
         self.drop_if_busy = bool(gp("drop_if_busy").value)
         self.jpeg_quality = int(gp("jpeg_quality").value)
         self.log_throttle_sec = float(gp("log_throttle_sec").value)
+        self.control_wait_timeout_sec = float(gp("control_wait_timeout_sec").value)
 
         self.logic = EstimationLogic(PromptConfig(), os.getenv("GEMINI_API_KEY"))
         self.bridge = CvBridge()
 
-        self.pub = self.create_publisher(Float32MultiArray, self.output_topic, 10)
-        self.create_subscription(Float32MultiArray, self.coords_topic, self._on_coords, 10)
-        self.create_subscription(Image, self.image_topic, self._on_image, 10)
+        # Service-based interfaces: perception -> estimation, estimation -> control.
+        self._coords_srv = self.create_service(
+            PerceptionCoordsToEstimation, self.coords_service, self._handle_coords
+        )
+        self._image_srv = self.create_service(
+            PerceptionToEstimation, self.image_service, self._handle_image
+        )
+        self._control_client = self.create_client(EstimationToControl, self.control_service)
 
         # 세션/상태(꼬임 방지 핵심)
         self._lock = threading.Lock()
@@ -68,7 +79,7 @@ class EstimationMainNode(Node):
         self._busy = False
 
         self.get_logger().info(
-            f"[Main] Ready. {self.coords_topic} + {self.image_topic} -> {self.output_topic}"
+            f"[Main] Ready. services: {self.coords_service} + {self.image_service} -> {self.control_service}"
         )
 
     # ---------- helpers ----------
@@ -89,15 +100,19 @@ class EstimationMainNode(Node):
             with self._busy_lock:
                 self._busy = False
 
-    # ---------- inputs ----------
-    def _on_coords(self, msg: Float32MultiArray) -> None:
+    # ---------- inputs (services) ----------
+    def _handle_coords(
+        self, request: PerceptionCoordsToEstimation.Request, response: PerceptionCoordsToEstimation.Response
+    ) -> PerceptionCoordsToEstimation.Response:
         now = self._now()
-        data = list(msg.data)
+        data = list(request.coords)
         ok, reason = ok_coords(data)
         if not ok:
             self._warn(now, f"[Main] invalid coords len={len(data)} -> drop ({reason})")
             self._reset()
-            return
+            response.success = False
+            response.message = f"invalid coords: {reason}"
+            return response
 
         with self._lock:
             # [수정 포인트] req_id/seq 도입 시 sid/seq 갱신 규칙만 교체
@@ -106,8 +121,13 @@ class EstimationMainNode(Node):
             self._state = "READY"
             self._coords = data
             self._stamp = now
+        response.success = True
+        response.message = "coords accepted"
+        return response
 
-    def _on_image(self, msg: Image) -> None:
+    def _handle_image(
+        self, request: PerceptionToEstimation.Request, response: PerceptionToEstimation.Response
+    ) -> PerceptionToEstimation.Response:
         now = self._now()
         with self._lock:
             coords = list(self._coords) if self._coords else None
@@ -117,26 +137,34 @@ class EstimationMainNode(Node):
 
         if coords is None:
             self._warn(now, "[Main] image arrived but coords not ready, drop")
-            return
+            response.success = False
+            response.message = "coords not ready"
+            return response
 
         age = now - stamp
         if age > self.max_age_sec:
             self._warn(now, f"[Main] coords stale age={age:.3f}s > {self.max_age_sec:.3f}s, drop")
             self._reset()
-            return
+            response.success = False
+            response.message = "coords stale"
+            return response
         if age > self.sync_tolerance_sec:
             self._warn(
                 now,
                 f"[Main] coords/image not tight-sync age={age:.3f}s > {self.sync_tolerance_sec:.3f}s, drop",
             )
             self._reset()
-            return
+            response.success = False
+            response.message = "coords/image sync tolerance exceeded"
+            return response
 
         if self.drop_if_busy:
             with self._busy_lock:
                 if self._busy:
                     self._warn(now, "[Main] inference busy -> drop new image")
-                    return
+                    response.success = False
+                    response.message = "busy"
+                    return response
                 self._busy = True
 
         with self._lock:
@@ -144,54 +172,93 @@ class EstimationMainNode(Node):
             self._seq = seq
 
         try:
-            bgr = ros_image_to_bgr_numpy(self.bridge, msg)
+            bgr = ros_image_to_bgr_numpy(self.bridge, request.image)
         except Exception as e:
             self.get_logger().error(f"[Main] ros->bgr failed: {e}")
             self._reset(clear_busy=True)
-            return
+            response.success = False
+            response.message = f"ros->bgr failed: {e}"
+            return response
 
         img = bgr_numpy_to_jpeg_bytes(bgr, jpeg_quality=self.jpeg_quality)
         if img is None:
             self.get_logger().error("[Main] bgr->jpeg failed, drop")
             self._reset(clear_busy=True)
-            return
+            response.success = False
+            response.message = "bgr->jpeg failed"
+            return response
 
         n = count_from_coords(coords)
         if n <= 0:
             self._warn(now, "[Main] expected_cnt <= 0, drop")
             self._reset(clear_busy=True)
-            return
+            response.success = False
+            response.message = "expected count <= 0"
+            return response
 
-        fut = self._executor.submit(self._infer_and_publish, img, coords, n, sid, seq, stamp)
-        fut.add_done_callback(lambda _f: self._clear_busy())
+        fut = self._executor.submit(self._infer_and_send, img, coords, n, sid, seq, stamp)
+        try:
+            ok, msg = fut.result()
+        finally:
+            self._clear_busy()
+
+        response.success = bool(ok)
+        response.message = str(msg)
+        return response
 
     # ---------- core ----------
-    def _infer_and_publish(
+    def _infer_and_send(
         self, img: bytes, coords: List[float], n: int, sid: int, seq: int, stamp: float
-    ) -> None:
+    ) -> tuple[bool, str]:
         with self._lock:
             if sid != self._sid or seq != self._seq:
-                return
+                return False, "stale session"
 
         if (self._now() - stamp) > self.max_age_sec:
             self._warn(self._now(), "[Main] coords expired during inference, drop")
             self._reset()
-            return
+            return False, "coords expired during inference"
 
         ids = self.logic.run_inference(img, "image/jpeg", n, self.unknown_type_id)
         pickup, reason = pack_pickup_commands(coords, sanitize_ids(ids, self.unknown_type_id))
         if not pickup:
             self._warn(self._now(), f"[Main] failed to pack pickup_commands -> drop ({reason})")
             self._reset()
-            return
+            return False, f"failed to pack pickup_commands: {reason}"
 
         with self._lock:
             if sid != self._sid or seq != self._seq:
-                return
+                return False, "stale session after inference"
 
-        self.pub.publish(Float32MultiArray(data=pickup))
-        self.get_logger().info(f"[Main] published pickup_commands len={len(pickup)}")
+        ok, msg = self._send_to_control(pickup)
+        if ok:
+            self.get_logger().info(f"[Main] sent pickup_commands len={len(pickup)} to control")
+        else:
+            self.get_logger().error(f"[Main] failed to send pickup_commands to control: {msg}")
         self._reset()
+        return ok, msg
+
+    def _send_to_control(self, pickup: List[float]) -> tuple[bool, str]:
+        if not self._control_client.wait_for_service(timeout_sec=self.control_wait_timeout_sec):
+            return False, f"control service not available: {self.control_service}"
+
+        req = EstimationToControl.Request()
+        req.values = [float(x) for x in pickup]
+        fut = self._control_client.call_async(req)
+        try:
+            import rclpy
+
+            rclpy.spin_until_future_complete(self, fut, timeout_sec=self.control_wait_timeout_sec)
+        except Exception as e:  # spin_until_future_complete 방어
+            return False, f"spin_until_future_complete failed: {e}"
+
+        if not fut.done():
+            return False, "control service call timed out"
+        if fut.exception() is not None:
+            return False, f"control service call failed: {fut.exception()}"
+
+        res = fut.result()
+        return bool(res.success), str(res.message or "")
 
     def _clear_busy(self) -> None:
         if not self.drop_if_busy:

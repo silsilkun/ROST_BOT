@@ -18,6 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Sphere.msg"
   "srv/AddThreeInts.srv"
   "srv/PerceptionToEstimation.srv"
+  "srv/PerceptionCoordsToEstimation.srv"
   "srv/EstimationToControl.srv"
   "srv/PerceptionToControl.srv"
   "srv/ControlToPerception.srv"

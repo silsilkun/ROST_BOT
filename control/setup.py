@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'recycle = control.recycle:main',
+            'renew = control.recycle_new:main',
             'tower = control.main:main',
             'move = control.moving_test:main',
             'pos = control.pos:main',

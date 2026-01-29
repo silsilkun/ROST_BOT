@@ -8,12 +8,20 @@
 - /home/JunPyo/tower/src/control/control/두산프로그래밍가이드.pdf
 - /home/JunPyo/tower/src/control/control/그리퍼_메뉴얼.html
 
+## Main code files
+- /home/JunPyo/tower/src/control/control/nodes/control_client.py
+- /home/JunPyo/tower/src/control/control/gripper_drl_controller.py
+- /home/JunPyo/tower/src/control/control/recycle.py
+
 ## Notes
 - After applying these instructions, change the working directory to /home/JunPyo/tower/src/control/control and work from there.
-- The robot arm control code is in tower_build.py.
+- The main control logic lives under control/nodes, with the primary client in control_client.py.
 - The gripper is controlled via gripper_drl_controller.py and used together with the Doosan arm.
 - There is no teaching pendant in this environment; the robot arm is controlled via computer communication only.
-- The control folder is the primary working area.
-- The primary code files in the folder are recycle.py and gripper_drl_controller.py.
-- When working, consult /home/JunPyo/tower/src/control/control/두산프로그래밍가이드.pdf and /home/JunPyo/tower/src/control/control/그리퍼_메뉴얼.html to find answers.
-- If unsure, say you do not know.
+- Joint limits (deg):
+  - J1: -360 to 360
+  - J2: -95 to 95
+  - J3: -135 to 135
+  - J4: -360 to 360
+  - J5: -135 to 135
+  - J6: -360 to 360

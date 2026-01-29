@@ -356,6 +356,7 @@ def test_data():
 
 
 def main(args=None):
+    rclpy.init(args=args)
     test = RecycleNew()
     trash, bin_pos = test_data()
     test.run(trash, bin_pos)

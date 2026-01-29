@@ -1,3 +1,4 @@
-float64[] values
+float32[] tcoordinates
+float32[] ccoordinates
 ---
 string success_message

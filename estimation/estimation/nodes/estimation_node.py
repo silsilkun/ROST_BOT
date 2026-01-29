@@ -24,7 +24,7 @@ class EstimationNode(Node):
         Tcoordinates = request.tcoordinates
         Ccoordinates = request.ccoordinates
 
-        self.get_logger().info('Received request from Perception Node')
+        self.get_logger().info('Received request from Perception Node', raw_image, vis_image, Tcoordinates, Ccoordinates)
 
         # Dummy processing (replace with actual estimation logic)
         success_message = "이미지 및 좌표 수신 완료"

@@ -4,7 +4,11 @@ from rost_interfaces.action import Circulation
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionServer
+from rclpy.executors import MultiThreadedExecutor
 
+from control.control.utils import recycle_new
+from control.control.utils.recycle_new import RecycleNew
+import DR_init
 
 class ControlNode(Node):
     def __init__(self):
@@ -40,7 +44,30 @@ class ControlNode(Node):
     def handle_estimation_to_control(self, request, response):
         self.get_logger().info('Received request from Estimation Node')
 
+        self.trash_coordinates = request.tcoordinates
+        self.can_coordinates = request.ccoordinates
+
         # Dummy processing (replace with actual control logic)
         response.control_signal = "좌표 수신 완료"
 
         return response
+    
+def main(args=None):
+    rclpy.init(args=args)
+    dsr_node = rclpy.create_node("dsr_node", namespace=recycle_new.ROBOT_ID)
+    DR_init.__dsr__node = dsr_node
+
+    control_node = ControlNode()
+    executor = MultiThreadedExecutor()
+    executor.add_node(control_node)
+    executor.spin()
+    trash = control_node.trash_coordinates
+    bin_pos = control_node.can_coordinates
+
+    robot = RecycleNew()
+    robot.run(trash, bin_pos)
+
+    control_node.destroy_node()
+    robot.destroy_node()
+    dsr_node.destroy_node()
+    rclpy.shutdown()

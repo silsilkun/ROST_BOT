@@ -1,0 +1,6 @@
+sensor_msgs/Image image
+string session_id
+builtin_interfaces/Time stamp
+---
+bool success
+string message

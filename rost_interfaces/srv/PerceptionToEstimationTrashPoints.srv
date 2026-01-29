@@ -1,0 +1,6 @@
+rost_interfaces/TrashPoint[] trash_list
+string session_id
+builtin_interfaces/Time stamp
+---
+bool success
+string message

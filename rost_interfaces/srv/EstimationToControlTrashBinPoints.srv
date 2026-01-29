@@ -1,0 +1,5 @@
+rost_interfaces/TrashBinPoint[] trash_bin_list
+string session_id
+---
+bool success
+string message

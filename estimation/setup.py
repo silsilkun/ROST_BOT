@@ -26,6 +26,10 @@ setup(
         'console_scripts': [
             "main = estimation.nodes.main_node:main",
             "test = estimation.nodes.standalone_test_node:main",
+            "add = estimation.utils.add_service:main",
+            "judge = estimation.utils.judge_service:main",
+            "estimation = estimation.nodes.estimation_node:main",
+            "estimation_test = estimation.test_client:main",
         ],
     },
 )

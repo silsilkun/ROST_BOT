@@ -1,7 +1,7 @@
 import rclpy
 import DR_init
 from rclpy.node import Node
-from control.gripper_drl_controller import GripperController
+from control.control.utils.gripper_drl_controller import GripperController
 
 ROBOT_ID = "dsr01"
 ROBOT_MODEL = "e0509"

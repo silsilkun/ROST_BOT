@@ -27,14 +27,8 @@ setup(
             'recycle = control.recycle:main',
             'renew = control.recycle_new:main',
             'tower = control.main:main',
-<<<<<<< HEAD
-            'control_client = control.nodes.control_client:main',
-            'per_est_server_demo = control.nodes.per_est_server_demo:main',
-            'control_client_demo = control.nodes.control_client_demo:main',
-=======
             'move = control.moving_test:main',
             'pos = control.pos:main',
->>>>>>> 준표
         ],
     },
 )

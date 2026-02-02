@@ -24,14 +24,11 @@ setup(
     },
     entry_points={
         'console_scripts': [
-<<<<<<< HEAD
             "add = estimation.nodes.add_node:main",
             "judge = estimation.nodes.judge_node:main",
             "estimation_node = estimation.nodes.estimation_node:main",
-=======
             "main = estimation.nodes.main_node:main",
             "test = estimation.nodes.standalone_test_node:main",
->>>>>>> 0127-feature/estimation-진아
         ],
     },
 )

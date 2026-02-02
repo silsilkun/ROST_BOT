@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ROST_BOT
 본 프로젝트는 ROS2 Humble이 설치되어 있는 환경을 기준으로 동작합니다.
 ## 실행 순서
@@ -54,7 +53,6 @@ ros2 launch robot_system_bringup system.launch.py
 
 numpy 버전: 1.25.2
 scipy 버전: 1.15.3
-=======
 # 260113 Report
 1) 기존에 /utils에 있던 judge_node.py를 /nodes로 이동
 2) sample test 성공 -> 모든 객체 정확하게 분류
@@ -63,4 +61,3 @@ scipy 버전: 1.15.3
 
 # 260122 Report +)추가
 1) 0113-jina 브랜치 (개인 브랜치)와 해당 브랜치는 업데이트 상태 완전히 동일함
->>>>>>> 0127-feature/estimation-진아

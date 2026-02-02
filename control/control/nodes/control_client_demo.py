@@ -12,8 +12,4 @@ def main(args=None):
         node.get_logger().info(f"bin_list={bin_list}")
     finally:
         node.destroy_node()
-<<<<<<< HEAD
         rclpy.shutdown()
-=======
-        rclpy.shutdown()
->>>>>>> 준표

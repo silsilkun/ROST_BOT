@@ -6,8 +6,8 @@ from rclpy.node import Node
 from rclpy.action import ActionServer
 from rclpy.executors import MultiThreadedExecutor
 
-from control.control.utils import recycle_new
-from control.control.utils.recycle_new import RecycleNew
+from control.utils import recycle_new
+from control.utils.recycle_new import RecycleNew
 import DR_init
 
 class ControlNode(Node):

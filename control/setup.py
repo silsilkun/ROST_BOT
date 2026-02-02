@@ -29,6 +29,7 @@ setup(
             'tower = control.main:main',
             'move = control.moving_test:main',
             'pos = control.pos:main',
+            'control_node = control.nodes.control_node:main',
         ],
     },
 )

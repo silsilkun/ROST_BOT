@@ -5,7 +5,7 @@
 - Main package folder: /home/JunPyo/tower/src/control
 
 ## Reference docs (must consult before answering)
-- /home/JunPyo/tower/src/control/control/두산프로그래밍가이드.pdf
+- /home/JunPyo/tower/src/control/control/두산e0509.pdf
 - /home/JunPyo/tower/src/control/control/그리퍼_메뉴얼.html
 
 ## Main code files

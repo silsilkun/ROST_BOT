@@ -2,6 +2,7 @@ import rclpy
 import DR_init
 from rclpy.node import Node
 from control.gripper_drl_controller import GripperController
+import math
 
 ROBOT_ID = "dsr01"
 ROBOT_MODEL = "e0509"
@@ -117,7 +118,6 @@ class RecycleNew(Node):
         r21, r22, r23 = rotm[1]
         r31, r32, r33 = rotm[2]
 
-        import math
         b = math.acos(max(-1.0, min(1.0, r33)))
         sin_b = math.sin(b)
         if abs(sin_b) < 1e-8:
@@ -154,6 +154,41 @@ class RecycleNew(Node):
         ]
         return self._rotm_to_zyz(rotm)
 
+    # 현재 TCP 자세를 회전행렬로 바꾸고 그리퍼 개방축이 지면과 수평을 이루게
+    def _zyz_to_rotm(self, a_deg, b_deg, c_deg):
+        a = math.radians(a_deg)
+        b = math.radians(b_deg)
+        c = math.radians(c_deg)
+        ca, sa = math.cos(a), math.sin(a)
+        cb, sb = math.cos(b), math.sin(b)
+        cc, sc = math.cos(c), math.sin(c)
+        return [
+            [ca * cb * cc - sa * sc, -ca * cb * sc - sa * cc, ca * sb],
+            [sa * cb * cc + ca * sc, -sa * cb * sc + ca * cc, sa * sb],
+            [-sb * cc, sb * sc, cb],
+        ]
+
+    # 각도 범위 정규화
+    def _normalize_deg(self, angle_deg):
+        return (angle_deg + 180.0) % 360.0 - 180.0
+
+    # J6 추가 회전량 alpha를 계산하는 함수
+    def _compute_j6_open_axis_level_delta(self, cur_posx):
+        rx, ry, rz = cur_posx[3], cur_posx[4], cur_posx[5]
+        rotm = self._zyz_to_rotm(rx, ry, rz)
+        a_z = rotm[2][0]  # 툴 기준 X축 벡터의 z값
+        b_z = rotm[2][1]  # 툴 기준 Y축 벡터의 z값
+
+        if abs(a_z) < 1e-9 and abs(b_z) < 1e-9:
+            return 0.0
+
+        alpha0 = math.degrees(math.atan2(-a_z, b_z))
+        alpha1 = alpha0 + 180.0
+        alpha0 = self._normalize_deg(alpha0)
+        alpha1 = self._normalize_deg(alpha1)
+        return alpha0 if abs(alpha0) <= abs(alpha1) else alpha1
+
+    # Pick & Place 과정에서 다른 물체와 충돌하지 않는 sol값을 선택
     def _select_ik_solution(self, ikin, target_pose, cur_posj, DR_BASE, j4_sign=None):
         def _to_list(q):
             return q.tolist() if hasattr(q, "tolist") else list(q)
@@ -300,6 +335,18 @@ class RecycleNew(Node):
         if not cur_after_posx or len(cur_after_posx) < 6:
             raise RuntimeError("get_current_posx returned invalid data after target movej")
 
+        # J1~J5는 유지한 채 J6만 보정해 그리퍼 개방축이 지면과 평행하도록 맞춤
+        cur_after_posj = get_current_posj()
+        if cur_after_posj is not None and len(cur_after_posj) >= 6:
+            delta_j6 = self._compute_j6_open_axis_level_delta(cur_after_posx)
+            if abs(delta_j6) > 0.1:
+                cur_posj_list = cur_after_posj.tolist() if hasattr(cur_after_posj, "tolist") else list(cur_after_posj)
+                target_j6 = cur_posj_list[5] + delta_j6
+                target_j6 = max(JOINT_LIMITS_DEG[5][0], min(JOINT_LIMITS_DEG[5][1], target_j6))
+                j6_only_target = [cur_posj_list[0], cur_posj_list[1], cur_posj_list[2], cur_posj_list[3], cur_posj_list[4], target_j6]
+                self.get_logger().info(f"J6 leveling: delta={delta_j6:.2f} deg, target_j6={target_j6:.2f} deg")
+                movej(j6_only_target, v=min(VEL, 30), a=min(ACC, 30))
+
         self.gripper.move(RELEASE)
         wait(RELEASE_WAIT)
 
@@ -349,8 +396,8 @@ class RecycleNew(Node):
 
 # 테스트용 데이터
 def test_data():
-    trash = [[2.0, 400, 200, 145, 50]]
-    bin_pos = [[600, -300]]
+    trash = [[2.0, 500, 100, 145, 50]]
+    bin_pos = [[700, 500]]
     return trash, bin_pos
 
 

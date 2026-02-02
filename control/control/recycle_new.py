@@ -42,9 +42,8 @@ DR_init.__dsr__model = ROBOT_MODEL
 
 
 class RecycleNew(Node):
-    def __init__(self):
+    def __init__(self, node_name=None):
         super().__init__("recycle_new_node", namespace=ROBOT_ID)
-        DR_init.__dsr__node = self
         self.gripper = GripperController(node=self, namespace=ROBOT_ID)
 
     # 로봇팔의 현재 포즈
@@ -357,7 +356,10 @@ def test_data():
 
 def main(args=None):
     rclpy.init(args=args)
-    test = RecycleNew()
+    robot = rclpy.create_node("recycle_new_node", namespace=ROBOT_ID)
+    DR_init.__dsr__node = robot
+
+    test = RecycleNew(robot)
     trash, bin_pos = test_data()
     test.run(trash, bin_pos)
 

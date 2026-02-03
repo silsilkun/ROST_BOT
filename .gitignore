@@ -1,6 +1,3 @@
 .vscode
-doosan-robot2
-log
-tower_builder
-ROST_BOT
-readme2.md
+doosan-robot2/
+robot_system_bringup/

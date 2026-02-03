@@ -1,5 +1,5 @@
 # estimation_node.py
-from estimation.core import run_node
+from estimation.utils.estimation_core import run_node
 
 
 def main(args=None):

@@ -13,13 +13,21 @@ class GeminiClient:
         self.r = max(0, int(retries))
         self.b = float(backoff)
 
-    def generate(self, prompt: str, image_bytes: bytes, mime_type: str) -> str:
-        part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+    def generate(self, prompt: str, images: list[tuple[bytes, str]]) -> str:
+        parts = [types.Part.from_bytes(data=b, mime_type=m) for b, m in (images or [])]
         cfg = types.GenerateContentConfig(temperature=self.t, max_output_tokens=self.k)
         err = None
         for i in range(self.r + 1):
             try:
-                text = (self.c.models.generate_content(self.m, [part, prompt], config=cfg).text or "").strip()
+                # google-genai expects keyword args in recent versions
+                text = (
+                    self.c.models.generate_content(
+                        model=self.m,
+                        contents=[*parts, prompt],
+                        config=cfg,
+                    ).text
+                    or ""
+                ).strip()
                 if not text:
                     raise RuntimeError("empty text")
                 return text

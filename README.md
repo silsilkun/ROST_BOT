@@ -1,8 +1,4 @@
-# 260127 Report
-1) estimation_node로 통합
-2) estimation 새로 짜기 시작
-
-# 260129 Report
-1) test_client 성공
-2) estimation 단독 실행으로 성공
-3) rost_interfaces 수정
+# 260210 Tuesday
+- 전체 쓰레기 더미 분류 완료 
+- 오분류 2개 (토마토 캔, 찌그러진 플라스틱 컵 = vinyl)
+- 벽면에 붙은 쓰레기 처리 시퀀스 내일 구상

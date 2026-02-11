@@ -42,6 +42,23 @@ REALSENSE_WIDTH = 1280
 REALSENSE_HEIGHT = 720
 REALSENSE_FPS = 30
 
+# ── 캘리브레이션 ──────────────────────────────────────
+# [수정 포인트] npz 파일명 바꾸려면 여기만
+CALIB_NPZ = "camcalib.npz"
+
+# Depth 필터 범위 (미터 단위)
+DEPTH_MIN_M = 0.20
+DEPTH_MAX_M = 2.00
+
+# Depth 샘플링 반경 (픽셀) → 중앙값 필터용
+DEPTH_SAMPLE_RADIUS = 2
+
+# 좌표 오프셋 (1차 데모 보정값)
+# [수정 포인트] 로봇 위치가 바뀌면 이 값을 재보정
+OFFSET_X = 81.5
+OFFSET_Y = 15.9
+OFFSET_Z = 0.0
+
 # ── 안전장치: 설정값 검증 ──────────────────────────────
 assert GEMINI_API_KEY != "", "API 키가 비어있습니다"
 assert REALSENSE_WIDTH > 0 and REALSENSE_HEIGHT > 0, "카메라 해상도 이상"

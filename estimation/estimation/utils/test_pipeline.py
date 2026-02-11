@@ -4,11 +4,13 @@ R.O.S.T - 통합 테스트 (test_pipeline.py)
 
 실행 방법:
   1) .env 파일에 API 키 넣기:  GEMINI_API_KEY=your_key_here
-  2) pip install google-genai pyrealsense2 python-dotenv opencv-python
-  3) python test_pipeline.py
+  2) camcalib.npz를 같은 폴더에 넣기
+  3) pip install google-genai pyrealsense2 python-dotenv opencv-python
+  4) python test_pipeline.py
 
-Output: [type_id, tx, ty, t_angle, bx, by]
-  ※ tz(depth)는 ToF → Control 직접 전달 (이 테스트에 포함 안 됨)
+Output: [type_id, tx, ty, tz, t_angle, bx, by]
+  ※ tz는 RealSense depth + 캘리브레이션으로 계산
+  ※ ToF는 Control이 별도 구독
 """
 
 import os
@@ -31,11 +33,12 @@ if not os.environ.get("GEMINI_API_KEY"):
 # ── 모듈 import ────────────────────────────────────────
 from config import CATEGORIES
 from camera_capture import (init_camera, stop_camera,
-                            capture_snapshot, crop_to_roi, crop_to_bbox)
+                            capture_snapshot, capture_snapshot_and_depth,
+                            crop_to_roi, crop_to_bbox)
 from setup_functions import select_roi, select_bin_positions, close_setup_window
 from gemini_functions_v2 import (init_gemini_client, check_objects_exist,
                               select_target_object, classify_object)
-from calibration import load_transform_matrix, uv_to_robot_coords
+from calibration import gemini_to_robot
 
 
 # ── 테스트 메뉴 ────────────────────────────────────────
@@ -43,12 +46,12 @@ def print_menu():
     print("\n" + "=" * 50)
     print("  R.O.S.T 기능 테스트 메뉴")
     print("=" * 50)
-    print("  1) 카메라 테스트        — 스냅샷 촬영 확인")
+    print("  1) 카메라 테스트        — RGB + Depth 촬영 확인")
     print("  2) 초기 설정            — ROI 선택 + Bin 위치 지정")
     print("  3) Gemini Step 1 테스트 — 객체 존재 확인")
     print("  4) Gemini Step 2 테스트 — 타겟 선정")
     print("  5) Gemini Step 3 테스트 — 카테고리 분류")
-    print("  6) 전체 1사이클 테스트   — 3~5 한 번에 실행")
+    print("  6) 전체 1사이클 테스트   — 3~5 + 좌표변환 한 번에")
     print("  7) 전체 루프 테스트      — 쓰레기 소진까지 반복")
     print("  q) 종료")
     print("-" * 50)
@@ -63,25 +66,34 @@ def print_setup_status(roi, bins):
 
 # ── 개별 테스트 함수들 ─────────────────────────────────
 
-def test_camera(pipeline):
-    """카메라 스냅샷 촬영 + 화면 표시"""
-    print("\n[테스트] 카메라 스냅샷...")
-    frame = capture_snapshot(pipeline)
-    print(f"  shape: {frame.shape}, dtype: {frame.dtype}")
-    cv2.imshow("Camera Test", frame)
+def test_camera(cam):
+    """카메라 RGB + Depth 촬영 테스트"""
+    print("\n[테스트] 카메라 RGB + Depth...")
+    color, depth_m = capture_snapshot_and_depth(cam)
+    print(f"  RGB:   shape={color.shape}, dtype={color.dtype}")
+    print(f"  Depth: shape={depth_m.shape}, min={depth_m.min():.3f}m, "
+          f"max={depth_m.max():.3f}m")
+
+    # Depth 시각화 (컬러맵 적용)
+    depth_vis = cv2.normalize(depth_m, None, 0, 255, cv2.NORM_MINMAX)
+    depth_vis = depth_vis.astype(np.uint8)
+    depth_color = cv2.applyColorMap(depth_vis, cv2.COLORMAP_JET)
+
+    # 나란히 표시
+    combined = np.hstack([color, depth_color])
+    cv2.imshow("Camera Test (RGB | Depth)", combined)
     cv2.waitKey(1)
     print("  → 아무 키나 누르면 닫힘")
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     cv2.waitKey(100)
-    return frame
 
 
-def test_setup(pipeline):
+def test_setup(cam):
     """ROI 선택 + Bin 위치 지정 (하나의 창에서 연속 진행)"""
     print("\n[설정] 초기 설정을 시작합니다.")
 
-    frame = capture_snapshot(pipeline)
+    frame = capture_snapshot(cam)
     print(f"  스냅샷 촬영 완료 ({frame.shape[1]}x{frame.shape[0]})")
 
     # Step A: ROI 선택 (창이 여기서 열림)
@@ -118,10 +130,10 @@ def test_setup(pipeline):
     return roi, bins
 
 
-def test_step1(gemini, pipeline, roi):
+def test_step1(gemini, cam, roi):
     """Gemini Step 1: 객체 존재 확인"""
     print("\n[테스트] Step 1 — 객체 존재 확인...")
-    frame = capture_snapshot(pipeline)
+    frame = capture_snapshot(cam)
     roi_img = crop_to_roi(frame, roi)
 
     cv2.imshow("Step 1: ROI", roi_img)
@@ -183,16 +195,25 @@ def test_step3(gemini, roi_img, target):
     return type_id
 
 
-def test_full_cycle(gemini, pipeline, roi, bins, T):
+def test_full_cycle(gemini, cam, roi, bins):
     """1사이클 전체 테스트 (한 개 객체 처리)"""
     print("\n" + "─" * 50)
     print("  전체 1사이클 테스트")
     print("─" * 50)
 
+    # RGB + Depth 동시 캡처
+    frame, depth_m = capture_snapshot_and_depth(cam)
+    roi_img = crop_to_roi(frame, roi)
+
     # Step 1
-    has_obj, roi_img = test_step1(gemini, pipeline, roi)
+    cv2.imshow("Cycle: ROI", roi_img)
+    cv2.waitKey(1)
+    has_obj = check_objects_exist(gemini, roi_img)
+    print(f"  [Step 1] {'있음 ✓' if has_obj else '없음 → 종료'}")
+    cv2.destroyAllWindows()
+    cv2.waitKey(100)
+
     if not has_obj:
-        print("  → 객체 없음, 사이클 종료")
         return None
 
     # Step 2
@@ -203,8 +224,13 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
     # Step 3
     type_id = test_step3(gemini, roi_img, target)
 
-    # 좌표 변환 (placeholder)
-    tx, ty = uv_to_robot_coords(target["center"], roi, T)
+    # 좌표 변환 (Gemini → 로봇, RealSense depth 사용)
+    coords = gemini_to_robot(target["center"], roi, depth_m)
+    if coords is None:
+        print("  ❌ 좌표 변환 실패")
+        tx, ty, tz = 0.0, 0.0, 0.0
+    else:
+        tx, ty, tz = coords
 
     # Bin 위치
     cat_name = [k for k, v in CATEGORIES.items() if v == type_id][0]
@@ -213,18 +239,18 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
     else:
         bx, by = 0.0, 0.0
 
-    # ── Output (6개) ──────────────────────────────
-    output = [type_id, tx, ty, target["angle"], bx, by]
+    # ── Output (7개) ──────────────────────────────
+    output = [type_id, tx, ty, tz, target["angle"], bx, by]
 
     print(f"\n  📦 Output: {output}")
     print(f"     분류:  {cat_name} (type_id={type_id})")
-    print(f"     좌표:  tx={tx:.2f}, ty={ty:.2f}")
+    print(f"     좌표:  tx={tx:.2f}, ty={ty:.2f}, tz={tz:.2f} cm")
     print(f"     각도:  {target['angle']}°")
     print(f"     쓰레기통: ({bx}, {by})")
     return output
 
 
-def test_full_loop(gemini, pipeline, roi, bins, T):
+def test_full_loop(gemini, cam, roi, bins):
     """루프 테스트 (객체 소진까지 반복)"""
     print("\n" + "=" * 50)
     print("  전체 루프 테스트 시작")
@@ -238,7 +264,7 @@ def test_full_loop(gemini, pipeline, roi, bins, T):
         print(f"  Cycle #{cycle}")
         print(f"{'━' * 40}")
 
-        result = test_full_cycle(gemini, pipeline, roi, bins, T)
+        result = test_full_cycle(gemini, cam, roi, bins)
         if result is None:
             print("\n✅ 루프 종료!")
             break
@@ -260,9 +286,8 @@ def main():
     print("R.O.S.T 기능 테스트 시작\n")
 
     # 초기화
-    pipeline = init_camera()
+    cam = init_camera()  # (pipeline, align) 튜플
     gemini = init_gemini_client()
-    T = load_transform_matrix()
 
     # 상태 저장
     roi = None
@@ -275,22 +300,22 @@ def main():
         choice = input("선택: ").strip().lower().rstrip(").")
 
         if choice == "1":
-            test_camera(pipeline)
+            test_camera(cam)
 
         elif choice == "2":
-            roi, bins = test_setup(pipeline)
+            roi, bins = test_setup(cam)
 
         elif choice == "3":
             if roi is None:
                 print("⚠️  초기 설정을 먼저 하세요 (메뉴 2)")
                 continue
-            test_step1(gemini, pipeline, roi)
+            test_step1(gemini, cam, roi)
 
         elif choice == "4":
             if roi is None:
                 print("⚠️  초기 설정을 먼저 하세요 (메뉴 2)")
                 continue
-            frame = capture_snapshot(pipeline)
+            frame = capture_snapshot(cam)
             roi_img = crop_to_roi(frame, roi)
             test_step2(gemini, roi_img)
 
@@ -298,7 +323,7 @@ def main():
             if roi is None:
                 print("⚠️  초기 설정을 먼저 하세요 (메뉴 2)")
                 continue
-            frame = capture_snapshot(pipeline)
+            frame = capture_snapshot(cam)
             roi_img = crop_to_roi(frame, roi)
             target = select_target_object(gemini, roi_img)
             if target:
@@ -308,13 +333,13 @@ def main():
             if roi is None:
                 print("⚠️  초기 설정을 먼저 하세요 (메뉴 2)")
                 continue
-            test_full_cycle(gemini, pipeline, roi, bins, T)
+            test_full_cycle(gemini, cam, roi, bins)
 
         elif choice == "7":
             if roi is None:
                 print("⚠️  초기 설정을 먼저 하세요 (메뉴 2)")
                 continue
-            test_full_loop(gemini, pipeline, roi, bins, T)
+            test_full_loop(gemini, cam, roi, bins)
 
         elif choice == "q":
             break
@@ -323,7 +348,7 @@ def main():
             print("잘못된 입력")
 
     # 정리
-    stop_camera(pipeline)
+    stop_camera(cam)
     cv2.destroyAllWindows()
     print("\n테스트 종료")
 

@@ -185,18 +185,19 @@ def check_objects_exist(client, roi_image: np.ndarray) -> bool:
 _P2 = """Look at this waste collection area. Pick the ONE object that is easiest to grab with a parallel gripper — meaning it's the most isolated and has clear edges.
 
 Important:
-- If an object has a wrapper or label on it, that doesn't make it two objects. Treat it as one item and draw the box around just that single item.
+- If an object has a wrapper, label, or packaging around it, that's still one single item. Draw the box around just the main object, not the packaging separately.
 - If objects are stacked or overlapping, pick only the top one and fit the box tightly around it alone.
+- Do NOT merge nearby objects into one box. Each object is separate.
 
 Return ONLY this JSON, nothing else:
 {"box_2d": [ymin, xmin, ymax, xmax], "center": [cy, cx], "angle": <0-180>, "label": "<short description>"}
 
 Rules for the JSON values:
 - All coordinates are normalized 0 to 1000.
-- "center" must be exactly 2 numbers: the y and x of the object's center point. Not 4 numbers, just 2.
+- "center" must be exactly 2 numbers: the y and x of the object's center point. Not 4, just 2.
 - "angle" is the rotation for a gripper: 0 means horizontal, 90 means vertical. Align with the object's shortest axis.
 - "label" is a brief description like "crushed plastic cup" or "tomato can".
-- Every field is required. Always include box_2d, center, angle, and label in your response."""
+- Every field is required. Always include box_2d, center, angle, and label."""
 
 
 def select_target_object(client, roi_image: np.ndarray) -> dict | None:
@@ -206,8 +207,6 @@ def select_target_object(client, roi_image: np.ndarray) -> dict | None:
                         thinking_budget=GEMINI_THINKING_BUDGET_SPATIAL)
     try:
         r = _parse_json(resp.text)
-        for k in ("box_2d", "center", "angle"):                            # [안전장치] 필수키
-            assert k in r, f"'{k}' 없음"
 
         # ── [안전장치] center 누락 시 box_2d에서 자동 계산 ──
         if "center" not in r and "box_2d" in r:
@@ -220,11 +219,13 @@ def select_target_object(client, roi_image: np.ndarray) -> dict | None:
             r["angle"] = 0
             print(f"[보정] angle 누락 → 기본값 0°")
 
+        for k in ("box_2d", "center", "angle"):                            # [안전장치] 필수키
+            assert k in r, f"'{k}' 없음"
+
         # ── [안전장치] center 값 방어 ──────────────────────
-        # Gemini가 가끔 center를 4개(bbox 형태)로 리턴하는 경우 대비
         center = r["center"]
         if isinstance(center, list) and len(center) == 4:
-            # 4개 → 중심점 계산 (ymin,xmin,ymax,xmax 또는 cy1,cx1,cy2,cx2)
+            # 4개 → 중심점 계산
             cy = (center[0] + center[2]) // 2
             cx = (center[1] + center[3]) // 2
             center = [cy, cx]
@@ -254,34 +255,118 @@ def select_target_object(client, roi_image: np.ndarray) -> dict | None:
         return None
 
 
-# ── Step 3: 카테고리 분류 ─────────────────────────────
+# ── Step 3: 카테고리 분류 (증거 기반) ─────────────────
+# First, try to identify WHAT this object is (e.g., a can, a cup, a bottle, a bag, a box).
+# Look at the overall shape, size, and structure — not just the surface texture.
+# Then, classify based on what the object actually IS, not what its surface looks like.
 
 # [수정 포인트] 분류 프롬프트 바꾸려면 여기만
-_P3 = f"""Look at this single waste object closely and classify it into ONE of these categories: {', '.join(CATEGORY_LIST)}
+_P3 = f"""Look at this single waste object very carefully. Your job is to classify it into ONE of these categories: {', '.join(CATEGORY_LIST)}
+Before classifying, imagine picking this object up with your gripper.
+- Would it feel rigid and hold its shape? → plastic or can or glass
+- Would it crumple flat with almost no resistance, like a thin sheet? → vinyl
+- Would it feel like paper? → paper or box
 
-Here's how to tell them apart:
-- can: Metal containers — aluminum cans (soda, beer), tin cans (canned food like tomatoes, tuna). Even if it has a paper label or plastic wrapper around it, the body is metal, so it's a can.
-- plastic: Rigid plastic items — water bottles, plastic cups, food containers. Even if it's crushed or crumpled, if you can tell it was originally a rigid plastic item, it's plastic.
-- vinyl: Soft, flexible film or sheet material — plastic bags, snack wrappers, cling wrap, bubble wrap. Think "thin and crinkly."
-- box: Cardboard or thick paper boxes — shipping boxes, cereal boxes, pizza boxes.
-- paper: Thin paper products — newspapers, receipts, paper cups, copy paper, paper bags.
-- glass: Glass bottles, jars, or containers.
-- unknown: Anything that doesn't clearly fit the above.
+A crushed plastic cup is still rigid plastic — it resists being flattened 
+and springs back partially. Vinyl film just collapses flat like a deflated balloon.
 
-Key rule: Judge by the MAIN BODY material of the object, not by any label, wrapper, or coating on the surface. For example, a tin can wrapped in a paper label is still a "can" because the body is metal.
+For example: a tin can covered in a colorful paper label is still a "can" because the object itself is a metal container. Don't be fooled by surface wrapping.
 
-Return ONLY this JSON, nothing else:
-{{"category": "<one of the categories above>", "confidence": "high/medium/low"}}"""
+But here's the important rule: you must PROVE your classification with visual evidence. If you can't find enough evidence, classify it as "unknown". It's much better to say "unknown" than to guess wrong.
 
-def classify_object(client, bbox_image: np.ndarray) -> int:
-    """bbox 크롭 이미지 → type_id (0~6). 실패→unknown(6)."""
-    resp = _call_gemini(client, bbox_image, _P3,
+For each category, you need to see AT LEAST 2 of these clues:
+
+can (metal containers):
+- Metallic sheen or reflective surface typical of aluminum/tin
+- Cylindrical body shape (even if dented or crushed)
+- Visible rim or lip at the top/bottom edge
+- Pull-tab or opening mechanism
+- NOTE: Even if a can has a paper label or plastic wrap around it, the BODY is metal → it's a can
+
+plastic (rigid plastic items):
+- Circular or oval rim/edge (even partial arc) suggesting a cup or bottle
+- Concave structure or "inward fold" from a crushed container
+- Thick, rigid-looking material with strong surface highlights (small bright reflections)
+- Visible thread pattern from a bottle cap area
+- NOTE: Even if crushed or crumpled, if you can tell it was originally a rigid container → it's plastic
+
+vinyl (soft film/sheet material):
+- Thin, flexible sheet with multiple translucent layers overlapping
+- Handle loops or bag opening structure
+- Very fine, complex, fractal-like wrinkles with no clear directional pattern
+- Material appears extremely thin and crinkly
+- STRICT RULE: If you do NOT see handles, bag opening, or thin layered sheets, do NOT classify as vinyl
+
+box (cardboard):
+- Flat, rigid panel structure with fold lines or creases
+- Brown kraft or corrugated texture
+- Box-like edges or flaps
+
+paper (thin paper):
+- Thin, flexible, matte surface (not shiny like plastic)
+- Printed text or newspaper-like texture
+- Paper fiber visible or tear patterns
+
+glass:
+- Transparent or semi-transparent rigid material
+- Thick walls with visible glass edges
+- Heavy-looking, smooth curved surface
+
+unknown:
+- Use this when evidence is unclear, mixed, or insufficient
+- When the object could be two categories and you can't decide → unknown
+- IMPORTANT: If you see ANY liquid, food residue, or leftover contents inside or on the object → ALWAYS classify as unknown, regardless of how clear the object type is
+
+Now classify the object and respond with ONLY this JSON:
+{{"category": "<category>", "confidence": "high/medium/low", "evidence": ["<clue 1>", "<clue 2>"], "counter_evidence": "<why it's not the next most likely category>"}} """
+
+# [수정 포인트] confidence/evidence 기반 자동 unknown 처리 임계값
+_MIN_EVIDENCE_COUNT = 2       # evidence가 이 수 미만이면 → unknown
+_AUTO_UNKNOWN_CONFIDENCE = "low"  # 이 confidence면 → unknown
+
+# 수정 (step2의 추측 값을 step3에 같이 넘겨서 참고해서 분류하도록)
+def classify_object(client, bbox_image: np.ndarray, label_hint: str = "") -> int:
+    """bbox 크롭 이미지 → type_id (0~6). 증거 부족 시 unknown(6)."""
+
+    # ── [개선] Step 2 label 힌트 삽입 ──
+    if label_hint:
+        prompt = f'Step 2 identified this object as: "{label_hint}". Use this as a reference, but verify by examining the object yourself.\n\n' + _P3
+    else:
+        prompt = _P3
+    
+    resp = _call_gemini(client, bbox_image, prompt,
                         temperature=0.3,
                         thinking_budget=GEMINI_THINKING_BUDGET_CLASSIFY)
+    # resp = _call_gemini(client, bbox_image, _P3,
+    #                     temperature=0.3,
+    #                     thinking_budget=GEMINI_THINKING_BUDGET_CLASSIFY)
     try:
         r = _parse_json(resp.text)
         raw = r["category"]
         conf = r.get("confidence", "?")
+        evidence = r.get("evidence", [])
+        counter = r.get("counter_evidence", "")
+
+        # ── [안전장치] 증거 기반 자동 unknown 처리 ──────────
+        auto_unknown = False
+        reason = ""
+
+        # 조건 1: confidence가 low면 → unknown
+        if conf == _AUTO_UNKNOWN_CONFIDENCE:
+            auto_unknown = True
+            reason = f"confidence={conf}"
+
+        # 조건 2: evidence 개수가 부족하면 → unknown
+        if isinstance(evidence, list) and len(evidence) < _MIN_EVIDENCE_COUNT:
+            auto_unknown = True
+            reason = f"evidence {len(evidence)}개 < {_MIN_EVIDENCE_COUNT}개"
+
+        if auto_unknown:
+            print(f"[안전장치] '{raw}' → unknown 강제 변환 ({reason})")
+            print(f"  evidence: {evidence}")
+            print(f"  counter: {counter}")
+            return CATEGORIES["unknown"]
+        # ── 자동 unknown 끝 ────────────────────────────────
 
         # [개선 #4] word-boundary 매칭
         category = _match_category(raw)
@@ -290,6 +375,8 @@ def classify_object(client, bbox_image: np.ndarray) -> int:
 
         tid = CATEGORIES[category]
         print(f"[Step 3] {category} (id={tid}, conf={conf})")
+        print(f"  evidence: {evidence}")
+        print(f"  counter: {counter}")
         return tid
     except (json.JSONDecodeError, KeyError) as e:
         print(f"[에러] Step3: {e}")

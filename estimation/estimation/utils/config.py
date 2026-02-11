@@ -42,12 +42,6 @@ REALSENSE_WIDTH = 1280
 REALSENSE_HEIGHT = 720
 REALSENSE_FPS = 30
 
-# ── ToF 센서 ───────────────────────────────────────────
-# [수정 포인트] 아두이노 포트가 다르면 여기만 수정
-TOF_SERIAL_PORT = "/dev/ttyACM0"
-TOF_BAUD_RATE = 9600
-TOF_TIMEOUT = 2  # 초
-
 # ── 안전장치: 설정값 검증 ──────────────────────────────
 assert GEMINI_API_KEY != "", "API 키가 비어있습니다"
 assert REALSENSE_WIDTH > 0 and REALSENSE_HEIGHT > 0, "카메라 해상도 이상"

@@ -24,8 +24,6 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            "estimation = estimation.nodes.estimation_node:main",
-            "estimation_test = estimation.test_client:main",
         ],
     },
 )

@@ -10,6 +10,46 @@ from control.utils import recycle_new
 from control.utils.recycle_new import RecycleNew
 import DR_init
 
+
+ROBOT_ID = "dsr01"
+ROBOT_MODEL = "e0509"
+
+# 속도 가속도 오프셋 (VEL, ACC 값만 수정하면됨)
+VEL = 50
+ACC = 30
+
+# wait 오프셋
+BASE_VEL = 20.0
+MAX_VEL = 100.0
+WAIT_SEC_PER_VEL = 0.03
+
+VEL = min(VEL, MAX_VEL)
+wait_offset = max(0.0, VEL - BASE_VEL) * WAIT_SEC_PER_VEL
+
+# 로봇팔 오프셋
+PICK_APPROACH = 150
+PICK_DESCENT = 90
+LIFT = 280
+
+# 그리퍼 오프셋
+GRAB = 500
+RELEASE = 0
+
+# 관절 제한 (deg)
+JOINT_LIMITS_DEG = [
+    (-360.0, 360.0),  # J1
+    (-95.0, 95.0),    # J2
+    (-135.0, 135.0),  # J3
+    (-360.0, 360.0),  # J4
+    (-135.0, 135.0),  # J5
+    (-360.0, 360.0),  # J6
+]
+
+DR_init.__dsr__id = ROBOT_ID
+DR_init.__dsr__model = ROBOT_MODEL
+
+
+
 class ControlNode(Node):
     def __init__(self):
         super().__init__('control_node')
@@ -60,7 +100,7 @@ def main(args=None):
     control_node = ControlNode()
     executor = MultiThreadedExecutor()
     executor.add_node(control_node)
-    executor.spin()
+    executor.spin_once()
     trash = control_node.trash_coordinates
     bin_pos = control_node.can_coordinates
 

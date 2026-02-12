@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 from rost_interfaces.srv import PerceptionToEstimation
 from rost_interfaces.srv import EstimationToControl
 
@@ -62,7 +61,6 @@ def main(args=None):
 
     estimation_node.destroy_node()
     rclpy.shutdown()
-=======
 # estimation_node.py
 from estimation.utils.estimation_core import run_node
 
@@ -73,4 +71,3 @@ def main(args=None):
 
 if __name__ == "__main__":
     main()
->>>>>>> 0127-feature/estimation-진아

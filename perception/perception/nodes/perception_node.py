@@ -62,7 +62,7 @@ class PerceptionNode(Node):
         self.get_logger().info(f"Result received: {result}")
 
         # Circulating function
-        data_to_send_request()
+        pass
     ''' End of action client definitions '''
 
 

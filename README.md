@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ROST_BOT
 본 프로젝트는 ROS2 Humble이 설치되어 있는 환경을 기준으로 동작합니다.
 ## 실행 순서
@@ -59,11 +58,9 @@ scipy 버전: 1.15.3
 2) sample test 성공 -> 모든 객체 정확하게 분류
 3) plastic의 경우, '파란색 boxing된 객체는 플라스틱'이라는 강력한 프롬프트로 분류
 4) test 진행 시, 0113_test.zip 파일을 src 폴더랑 같은 위치에 압축 해제하기 (test_one_shot_pub.py + test_images/sample_01.jpg)
-=======
 # 260127 Report
 1) estimation_node로 통합
 2) estimation 새로 짜기 시작
->>>>>>> 0127-feature/estimation-진아
 
 # 260129 Report
 1) test_client 성공

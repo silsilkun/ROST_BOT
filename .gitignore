@@ -1,4 +1,5 @@
 .vscode
+<<<<<<< HEAD
 __pycache__/
 doosan-robot2
 log
@@ -11,3 +12,8 @@ __pycache__/
 outputs/
 test_real.py
 legacy/
+=======
+doosan-robot2/
+robot_system_bringup/
+.env
+>>>>>>> 0210-per+est

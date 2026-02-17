@@ -134,7 +134,7 @@ pipeline = init_camera()
 cam = init_camera()  # (pipeline, align) 튜플
 ```
 
-모든 함수에 `cam` 튜플을 넘겨야 합니다. `pipeline` 단독으로 넘기면 에러.
+모든 함수에 `cam` 튜  플을 넘겨야 합니다. `pipeline` 단독으로 넘기면 에러.
 
 ### 5-3. Bin 좌표 = 이미지 픽셀 좌표
 

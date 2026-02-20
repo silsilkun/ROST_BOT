@@ -105,9 +105,11 @@ class RecycleNew(Node):
         self.gripper = GripperController(node=self, namespace=ROBOT_ID)
         self.tof_serial = None
 
+    # 범위 제한 안정용 함수
     def _clamp(self, value: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, value))
 
+    # 그리퍼 실제 간격 보정용 함수
     def _interpolate_gap_from_cmd(self, gripper_value: int) -> float:
         table = GRIPPER_GAP_TABLE
         if gripper_value <= table[0][0]:
@@ -124,7 +126,8 @@ class RecycleNew(Node):
                 ratio = (gripper_value - cmd0) / (cmd1 - cmd0)
                 return gap0 + ratio * (gap1 - gap0)
         return table[-1][1]
-
+    
+    # 그리퍼값의 실제 간격 추정 함수 (로그/검증/후속 계산에 필요)
     def _interpolate_cmd_from_gap(self, target_gap_mm: float) -> int:
         table = GRIPPER_GAP_TABLE
         if target_gap_mm >= table[0][1]:
@@ -143,6 +146,7 @@ class RecycleNew(Node):
                 return int(round(cmd))
         return table[-1][0]
 
+    # ToF serial 통신 연결/해제
     def _connect_tof(self):
         self.tof_serial = serial.Serial(TOF_PORT, TOF_BAUDRATE, timeout=TOF_TIMEOUT_SEC)
         time.sleep(TOF_CONNECT_WAIT_SEC)
@@ -156,12 +160,14 @@ class RecycleNew(Node):
                 pass
             self.tof_serial = None
 
+    # 받은 거리 데이터 파싱작업
     def _parse_distance_mm(self, raw_line: str):
         numbers = re.findall(r"-?\d+(?:\.\d+)?", raw_line)
         if not numbers:
             return None
         return float(numbers[0])
 
+    # ToF 거리값 실시간으로 받아오는 함수
     def read_tof_distance_mm(self):
         if self.tof_serial is None:
             return None
@@ -177,7 +183,8 @@ class RecycleNew(Node):
             if parsed is not None:
                 last_value = parsed
         return last_value
-
+    
+    # 물체 폭에 맞춰 ToF 거리 계산하는 함수
     def _target_tof_distance_mm(self, edge_mm: float, phase_offset_mm: float) -> float:
         table = TOF_TARGET_TABLE
         if edge_mm <= table[0][0]:
@@ -199,6 +206,7 @@ class RecycleNew(Node):
 
         return base + TOF_TARGET_COMMON_OFFSET_MM + phase_offset_mm
 
+    # edge 조건에서 허용할 최소 TCP Z높이 (안전 가드값)
     def _tcp_z_guard_mm(self, edge_mm: float) -> float:
         # edge=0 기준 guard를 anchor로 두고 ToF target 비율로 스케일
         base_target = self._target_tof_distance_mm(0.0, 0.0)
@@ -209,6 +217,7 @@ class RecycleNew(Node):
             scaled = TCP_Z_GUARD_AT_EDGE0_MM * (edge_target / base_target)
         return max(TCP_Z_GUARD_MIN_MM, scaled + TCP_Z_GUARD_COMMON_OFFSET_MM)
 
+    # 하강시 조건 충족시 로봇 즉시 정지
     def _descend_with_tof(
         self,
         speedl,
@@ -357,7 +366,7 @@ class RecycleNew(Node):
             "place": place_xyz,
         }
 
-    # ---------- moving_test helpers ----------
+    # TCP가 Place 방향으로 바라보게 계산하는 부분
     def _unit(self, vec):
         norm = sum(v * v for v in vec) ** 0.5
         if norm == 0:
@@ -489,7 +498,7 @@ class RecycleNew(Node):
                 best_j4_delta = j4_delta
         return best
 
-    # ---------- main sequence ----------
+    # 동작 시퀀스
     def run_job(self, pick_xy, edge_mm, grip_angle, place_xyz):
         import DSR_ROBOT2 as dsr
 

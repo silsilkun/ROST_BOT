@@ -25,11 +25,11 @@ setup(
     entry_points={
         'console_scripts': [
             'recycle = control.recycle:main',
-            'renew = control.recycle_new:main',
+            'renew = control.recycle_260220:main',
             'tower = control.main:main',
             'move = control.moving_test:main',
             'pos = control.pos:main',
-            'grip = control.dev_grip:main',
+            'grip = control.depth_grip:main',
             'swipe = control.swipe:main',
         ],
     },

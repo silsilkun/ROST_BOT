@@ -1,0 +1,715 @@
+import rclpy
+import DR_init
+from rclpy.node import Node
+from control.gripper_drl_controller import GripperController
+import math
+import re
+import time
+import serial
+
+ROBOT_ID = "dsr01"
+ROBOT_MODEL = "e0509"
+
+# 속도 가속도 오프셋 (VEL, ACC 값만 수정하면됨)
+VEL = 50
+ACC = 30
+
+# 테스트용 데이터
+def test_data():
+    trash = [2.0, 500, 100, 80, 50, 500, 600]
+    return trash
+
+# wait 오프셋
+BASE_VEL = 20.0
+MAX_VEL = 100.0
+WAIT_SEC_PER_VEL = 0.04
+
+VEL = min(VEL, MAX_VEL)
+wait_offset = max(0.0, VEL - BASE_VEL) * WAIT_SEC_PER_VEL
+
+# 로봇팔 오프셋
+PICK_APPROACH_Z_FIXED_MM = 380.0
+LIFT = 280
+
+# 그리퍼 오프셋
+GRAB = 500
+RELEASE = 0
+PRE_GRIP_OFFSET_MM = 15.0
+
+# 그리퍼 보정 기준점
+GRIPPER_MIN = 0
+GRIPPER_MAX = 740
+
+# 그리퍼 보정값
+GRIPPER_GAP_TABLE = [
+    (0, 110.0),
+    (100, 100.0),
+    (200, 87.0),
+    (300, 73.0),
+    (400, 58.0),
+    (500, 41.0),
+    (600, 24.0),
+    (700, 8.0),
+    (740, 0.0),
+]
+
+# ToF serial 세팅
+TOF_PORT = "/dev/ttyUSB0"
+TOF_BAUDRATE = 115200
+TOF_TIMEOUT_SEC = 0.2
+TOF_CONNECT_WAIT_SEC = 1.0
+
+# ToF 거리측정 오프셋
+TOF_DESCENT_SPEED_MM_S = 30.0
+TOF_DESCENT_ACC_MM_S2 = 100.0
+TOF_DESCENT_ACC_DEG_S2 = 60.0
+TOF_SPEEDL_TIME_SEC = 0.2
+TOF_TRIGGER_COMPARE_OFFSET_MM = 0.0
+TOF_MONITOR_WAIT_SEC = 0.02
+TOF_POST_STOP_WAIT_SEC = 0.5
+TCP_Z_GUARD_AT_EDGE0_MM = 160.0
+TCP_Z_GUARD_COMMON_OFFSET_MM = 20
+TCP_Z_GUARD_MIN_MM = 120.0
+TOF_FLUSH_ON_DESCENT_START = True
+POST_STOP_SETTLE_SEC = 0.25
+
+# 폭에 따른 ToF 보정값
+TOF_TARGET_TABLE = [
+    (0.0, 70.0),
+    (20.0, 65.0),
+    (40.0, 60.0),
+    (60.0, 55.0),
+    (80.0, 50.0),
+    (100.0, 45.0),
+]
+TOF_TARGET_COMMON_OFFSET_MM = 0.0
+TOF_TARGET_TRIGGER_OFFSET_MM = 0.0
+
+# 관절 제한
+JOINT_LIMITS_DEG = [
+    (-360.0, 360.0),  # J1
+    (-95.0, 95.0),    # J2
+    (-135.0, 135.0),  # J3
+    (-360.0, 360.0),  # J4
+    (-135.0, 135.0),  # J5
+    (-360.0, 360.0),  # J6
+]
+
+DR_init.__dsr__id = ROBOT_ID
+DR_init.__dsr__model = ROBOT_MODEL
+
+
+class RecycleNew(Node):
+    def __init__(self):
+        super().__init__("recycle_new_node", namespace=ROBOT_ID)
+        self.gripper = GripperController(node=self, namespace=ROBOT_ID)
+        self.tof_serial = None
+
+    def _clamp(self, value: float, lo: float, hi: float) -> float:
+        return max(lo, min(hi, value))
+
+    def _interpolate_gap_from_cmd(self, gripper_value: int) -> float:
+        table = GRIPPER_GAP_TABLE
+        if gripper_value <= table[0][0]:
+            return table[0][1]
+        if gripper_value >= table[-1][0]:
+            return table[-1][1]
+
+        for i in range(len(table) - 1):
+            cmd0, gap0 = table[i]
+            cmd1, gap1 = table[i + 1]
+            if cmd0 <= gripper_value <= cmd1:
+                if cmd0 == cmd1:
+                    return gap0
+                ratio = (gripper_value - cmd0) / (cmd1 - cmd0)
+                return gap0 + ratio * (gap1 - gap0)
+        return table[-1][1]
+
+    def _interpolate_cmd_from_gap(self, target_gap_mm: float) -> int:
+        table = GRIPPER_GAP_TABLE
+        if target_gap_mm >= table[0][1]:
+            return table[0][0]
+        if target_gap_mm <= table[-1][1]:
+            return table[-1][0]
+
+        for i in range(len(table) - 1):
+            cmd0, gap0 = table[i]
+            cmd1, gap1 = table[i + 1]
+            if gap0 >= target_gap_mm >= gap1:
+                if gap0 == gap1:
+                    return int(round((cmd0 + cmd1) * 0.5))
+                ratio = (target_gap_mm - gap1) / (gap0 - gap1)
+                cmd = cmd1 + ratio * (cmd0 - cmd1)
+                return int(round(cmd))
+        return table[-1][0]
+
+    def _connect_tof(self):
+        self.tof_serial = serial.Serial(TOF_PORT, TOF_BAUDRATE, timeout=TOF_TIMEOUT_SEC)
+        time.sleep(TOF_CONNECT_WAIT_SEC)
+        self.get_logger().info(f"ToF connected: {TOF_PORT} @ {TOF_BAUDRATE}")
+
+    def _close_tof(self):
+        if self.tof_serial is not None:
+            try:
+                self.tof_serial.close()
+            except Exception:
+                pass
+            self.tof_serial = None
+
+    def _parse_distance_mm(self, raw_line: str):
+        numbers = re.findall(r"-?\d+(?:\.\d+)?", raw_line)
+        if not numbers:
+            return None
+        return float(numbers[0])
+
+    def read_tof_distance_mm(self):
+        if self.tof_serial is None:
+            return None
+        if self.tof_serial.in_waiting <= 0:
+            return None
+
+        last_value = None
+        while self.tof_serial.in_waiting > 0:
+            line = self.tof_serial.readline().decode("utf-8", errors="ignore").strip()
+            if not line:
+                continue
+            parsed = self._parse_distance_mm(line)
+            if parsed is not None:
+                last_value = parsed
+        return last_value
+
+    def _target_tof_distance_mm(self, edge_mm: float, phase_offset_mm: float) -> float:
+        table = TOF_TARGET_TABLE
+        if edge_mm <= table[0][0]:
+            base = table[0][1]
+        elif edge_mm >= table[-1][0]:
+            base = table[-1][1]
+        else:
+            base = table[-1][1]
+            for i in range(len(table) - 1):
+                e0, t0 = table[i]
+                e1, t1 = table[i + 1]
+                if e0 <= edge_mm <= e1:
+                    if e1 == e0:
+                        base = (t0 + t1) * 0.5
+                    else:
+                        ratio = (edge_mm - e0) / (e1 - e0)
+                        base = t0 + ratio * (t1 - t0)
+                    break
+
+        return base + TOF_TARGET_COMMON_OFFSET_MM + phase_offset_mm
+
+    def _tcp_z_guard_mm(self, edge_mm: float) -> float:
+        # edge=0 기준 guard를 anchor로 두고 ToF target 비율로 스케일
+        base_target = self._target_tof_distance_mm(0.0, 0.0)
+        edge_target = self._target_tof_distance_mm(edge_mm, 0.0)
+        if abs(base_target) < 1e-6:
+            scaled = TCP_Z_GUARD_AT_EDGE0_MM
+        else:
+            scaled = TCP_Z_GUARD_AT_EDGE0_MM * (edge_target / base_target)
+        return max(TCP_Z_GUARD_MIN_MM, scaled + TCP_Z_GUARD_COMMON_OFFSET_MM)
+
+    def _descend_with_tof(
+        self,
+        speedl,
+        wait,
+        get_current_posx,
+        stop_fn,
+        stop_type,
+        target_dist_mm,
+        tcp_z_guard_mm,
+    ):
+        trigger_dist_mm = target_dist_mm + TOF_TRIGGER_COMPARE_OFFSET_MM
+
+        def _stop_descent():
+            if stop_fn is not None and stop_type is not None:
+                stop_fn(stop_type)
+                return
+            # Fallback: speed command to zero when stop() API is unavailable.
+            speedl(
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [TOF_DESCENT_ACC_MM_S2, TOF_DESCENT_ACC_DEG_S2],
+                t=TOF_SPEEDL_TIME_SEC,
+            )
+
+        self.get_logger().info(
+            f"ToF speed descent: vz=-{TOF_DESCENT_SPEED_MM_S:.1f}mm/s, trigger<{trigger_dist_mm:.1f}mm, z_guard={tcp_z_guard_mm:.1f}"
+        )
+
+        if TOF_FLUSH_ON_DESCENT_START and self.tof_serial is not None:
+            try:
+                self.tof_serial.reset_input_buffer()
+            except Exception:
+                pass
+
+        last_tof = None
+        while True:
+            cur_posx, _ = get_current_posx()
+            cur_z = float(cur_posx[2]) if cur_posx and len(cur_posx) >= 3 else None
+            if cur_z is not None and cur_z <= tcp_z_guard_mm:
+                try:
+                    _stop_descent()
+                except Exception as exc:
+                    self.get_logger().warn(f"descent stop failed at z-guard: {exc}")
+                wait(TOF_POST_STOP_WAIT_SEC)
+                self.get_logger().warn(f"TCP Z guard triggered: current_z={cur_z:.1f} <= guard={tcp_z_guard_mm:.1f}")
+                return cur_z, last_tof, "z_guard"
+
+            # DSR_ROBOT2 구현에서 time=0인 speedl은 vel[0], vel[1] > 0 제약이 있어
+            # z축 단독 하강 시 오류를 피하기 위해 time을 명시한다.
+            speedl(
+                [0.0, 0.0, -TOF_DESCENT_SPEED_MM_S, 0.0, 0.0, 0.0],
+                [TOF_DESCENT_ACC_MM_S2, TOF_DESCENT_ACC_DEG_S2],
+                t=TOF_SPEEDL_TIME_SEC,
+            )
+
+            tof_mm = self.read_tof_distance_mm()
+            if tof_mm is not None:
+                last_tof = tof_mm
+                self.get_logger().info(
+                    f"ToF={tof_mm:.1f}mm, trigger<{trigger_dist_mm:.1f}mm"
+                )
+                if tof_mm < trigger_dist_mm:
+                    try:
+                        _stop_descent()
+                    except Exception as exc:
+                        self.get_logger().warn(f"descent stop failed at tof-hit: {exc}")
+                    wait(TOF_POST_STOP_WAIT_SEC)
+
+                    cur_posx, _ = get_current_posx()
+                    cur_z = float(cur_posx[2]) if cur_posx and len(cur_posx) >= 3 else 0.0
+                    return cur_z, tof_mm, "tof_hit"
+
+            wait(TOF_MONITOR_WAIT_SEC)
+
+    def _stabilize_after_stop(self, wait, mwait_fn=None, check_motion_fn=None):
+        # stop() 직후 감속/정지 정리가 끝난 뒤 다음 movej를 보내도록 보장
+        wait(POST_STOP_SETTLE_SEC)
+        if mwait_fn is not None:
+            try:
+                mwait_fn(0)
+                return
+            except Exception as exc:
+                self.get_logger().warn(f"mwait(0) failed after stop: {exc}")
+        if check_motion_fn is not None:
+            for _ in range(10):
+                try:
+                    if check_motion_fn() == 0:
+                        return
+                except Exception:
+                    break
+                wait(0.05)
+
+    # 로봇팔의 현재 포즈
+    def get_posx(self, get_current_posx, wait_fn, retries=3, delay=0.1):
+        for attempt in range(1, retries + 1):
+            try:
+                result = get_current_posx()
+            except Exception as exc:
+                self.get_logger().warn(f"get_current_posx failed (attempt {attempt}/{retries}): {exc}")
+                result = None
+
+            if result:
+                cur_posx, sol = result
+                if cur_posx is not None:
+                    try:
+                        if len(cur_posx) >= 6:
+                            return cur_posx, sol
+                    except TypeError:
+                        pass
+
+            if wait_fn:
+                wait_fn(delay)
+
+        return None, None
+
+    # trash 입력을 7개 단위로 정규화
+    def normalize_trash_list(self, trash_list):
+        if not trash_list:
+            return []
+        if isinstance(trash_list[0], (list, tuple)):
+            items = []
+            for item in trash_list:
+                if len(item) == 7:
+                    items.append(item)
+            return items
+        if len(trash_list) == 7:
+            return [trash_list]
+        return [
+            trash_list[i:i + 7] for i in range(0, len(trash_list), 7)
+            if len(trash_list[i:i + 7]) == 7
+        ]
+
+    # 입력 리스트를 검증하고 작업 딕셔너리로 전환
+    def create_job(self, trash):
+        item_id = self.type_id(trash[0])
+        pick_xy = (float(trash[1]), float(trash[2]))
+        edge_mm = float(trash[3])
+        angle = float(trash[4])
+
+        bin_x, bin_y = float(trash[5]), float(trash[6])
+        place_xyz = (bin_x, bin_y, 250.0)
+        return {
+            "id": item_id,
+            "pick": pick_xy,
+            "edge": edge_mm,
+            "angle": angle,
+            "place": place_xyz,
+        }
+
+    # ---------- moving_test helpers ----------
+    def _unit(self, vec):
+        norm = sum(v * v for v in vec) ** 0.5
+        if norm == 0:
+            raise ValueError("direction vector is zero")
+        return [v / norm for v in vec]
+
+    def _dot(self, a, b):
+        return sum(x * y for x, y in zip(a, b))
+
+    def _cross(self, a, b):
+        return [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+
+    def _rotm_to_zyz(self, rotm):
+        r11, r12, r13 = rotm[0]
+        r21, r22, r23 = rotm[1]
+        r31, r32, r33 = rotm[2]
+
+        b = math.acos(max(-1.0, min(1.0, r33)))
+        sin_b = math.sin(b)
+        if abs(sin_b) < 1e-8:
+            a = math.atan2(r21, r11)
+            c = 0.0
+        else:
+            a = math.atan2(r23, r13)
+            c = math.atan2(r32, -r31)
+
+        return (math.degrees(a), math.degrees(b), math.degrees(c))
+
+    def _look_at_zyz(self, cur_xyz, target_xyz):
+        direction = [
+            target_xyz[0] - cur_xyz[0],
+            target_xyz[1] - cur_xyz[1],
+            target_xyz[2] - cur_xyz[2],
+        ]
+        z_axis = self._unit(direction)
+        base_x = [1.0, 0.0, 0.0]
+        proj = self._dot(base_x, z_axis)
+        x_axis = [base_x[i] - proj * z_axis[i] for i in range(3)]
+        try:
+            x_axis = self._unit(x_axis)
+        except ValueError:
+            fallback = [0.0, 1.0, 0.0]
+            proj = self._dot(fallback, z_axis)
+            x_axis = self._unit([fallback[i] - proj * z_axis[i] for i in range(3)])
+        y_axis = self._cross(z_axis, x_axis)
+        x_axis = self._cross(y_axis, z_axis)
+        rotm = [
+            [x_axis[0], y_axis[0], z_axis[0]],
+            [x_axis[1], y_axis[1], z_axis[1]],
+            [x_axis[2], y_axis[2], z_axis[2]],
+        ]
+        return self._rotm_to_zyz(rotm)
+
+    # 현재 TCP 자세를 회전행렬로 바꾸고 그리퍼 개방축이 지면과 수평을 이루게
+    def _zyz_to_rotm(self, a_deg, b_deg, c_deg):
+        a = math.radians(a_deg)
+        b = math.radians(b_deg)
+        c = math.radians(c_deg)
+        ca, sa = math.cos(a), math.sin(a)
+        cb, sb = math.cos(b), math.sin(b)
+        cc, sc = math.cos(c), math.sin(c)
+        return [
+            [ca * cb * cc - sa * sc, -ca * cb * sc - sa * cc, ca * sb],
+            [sa * cb * cc + ca * sc, -sa * cb * sc + ca * cc, sa * sb],
+            [-sb * cc, sb * sc, cb],
+        ]
+
+    # 각도 범위 정규화
+    def _normalize_deg(self, angle_deg):
+        return (angle_deg + 180.0) % 360.0 - 180.0
+
+    # J6 추가 회전량 alpha를 계산하는 함수
+    def _compute_j6_open_axis_level_delta(self, cur_posx):
+        rx, ry, rz = cur_posx[3], cur_posx[4], cur_posx[5]
+        rotm = self._zyz_to_rotm(rx, ry, rz)
+        a_z = rotm[2][0]  # 툴 기준 X축 벡터의 z값
+        b_z = rotm[2][1]  # 툴 기준 Y축 벡터의 z값
+
+        if abs(a_z) < 1e-9 and abs(b_z) < 1e-9:
+            return 0.0
+
+        alpha0 = math.degrees(math.atan2(-a_z, b_z))
+        alpha1 = alpha0 + 180.0
+        alpha0 = self._normalize_deg(alpha0)
+        alpha1 = self._normalize_deg(alpha1)
+        return alpha0 if abs(alpha0) <= abs(alpha1) else alpha1
+
+    # Pick & Place 과정에서 다른 물체와 충돌하지 않는 sol값을 선택
+    def _select_ik_solution(self, ikin, target_pose, cur_posj, DR_BASE, j4_sign=None):
+        def _to_list(q):
+            return q.tolist() if hasattr(q, "tolist") else list(q)
+
+        def _within_limits(q_list):
+            for idx, val in enumerate(q_list):
+                mn, mx = JOINT_LIMITS_DEG[idx]
+                if val < mn or val > mx:
+                    return False
+            return True
+
+        def _sum_delta(q_list, cur_list):
+            return sum(abs(q_list[i] - cur_list[i]) for i in range(6))
+
+        cur_list = _to_list(cur_posj)
+
+        best = None
+        best_j4_delta = None
+        for sol in range(8):
+            try:
+                q_target = ikin(target_pose, sol, DR_BASE)
+            except TypeError:
+                q_target = ikin(target_pose, sol)
+            if q_target is None:
+                continue
+            q_target_list = _to_list(q_target)
+            if j4_sign == "positive" and q_target_list[3] <= 0.0:
+                continue
+            if j4_sign == "negative" and q_target_list[3] >= 0.0:
+                continue
+            if not _within_limits(q_target_list):
+                continue
+            cost = _sum_delta(q_target_list, cur_list)
+            j4_delta = abs(q_target_list[3] - cur_list[3])
+            if best is None or cost < best[0] or (cost == best[0] and j4_delta < best_j4_delta):
+                best = (cost, sol, q_target_list)
+                best_j4_delta = j4_delta
+        return best
+
+    # ---------- main sequence ----------
+    def run_job(self, pick_xy, edge_mm, grip_angle, place_xyz):
+        import DSR_ROBOT2 as dsr
+
+        movej = dsr.movej
+        speedl = dsr.speedl
+        ikin = dsr.ikin
+        posj = dsr.posj
+        posx = dsr.posx
+        wait = dsr.wait
+        set_robot_mode = dsr.set_robot_mode
+        get_current_posj = dsr.get_current_posj
+        get_current_posx = dsr.get_current_posx
+        DR_BASE = dsr.DR_BASE
+        ROBOT_MODE_AUTONOMOUS = dsr.ROBOT_MODE_AUTONOMOUS
+        stop_fn = getattr(dsr, "stop", None)
+        stop_type = getattr(dsr, "DR_SSTOP", None)
+        mwait_fn = getattr(dsr, "mwait", None)
+        check_motion_fn = getattr(dsr, "check_motion", None)
+
+        set_robot_mode(ROBOT_MODE_AUTONOMOUS)
+
+        x1, y1 = pick_xy
+        x2, y2, z2 = place_xyz
+        GRAB_WAIT = 2.0 + wait_offset
+        RELEASE_WAIT = 2.0 + wait_offset
+        PRE_GRIP_WAIT = 2.0 + wait_offset
+
+        # HOME 위치 초기화
+        home = posj(0, -20, 100, 0, 100, 90)
+        movej(home, VEL, ACC)
+        self.gripper.move(RELEASE)
+        wait(RELEASE_WAIT)
+
+        # pick 지점 상단으로 이동 (movej)
+        cur_posx, _ = self.get_posx(get_current_posx, wait)
+        if cur_posx is None:
+            self.get_logger().error("get_current_posx returned empty data; aborting sequence")
+            return
+        rx_home, ry_home, rz_home = cur_posx[3], cur_posx[4], cur_posx[5]
+        pick_upper = posx(x1, y1, PICK_APPROACH_Z_FIXED_MM, rx_home, ry_home, rz_home)
+        cur_posj = get_current_posj()
+        best = self._select_ik_solution(ikin, pick_upper, cur_posj, DR_BASE)
+        if best is None:
+            self.get_logger().error("No valid IK solution within joint limits for pick upper")
+            return
+        _, sol, q_target_list = best
+        self.get_logger().info(f"Selected IK sol={sol} for pick upper")
+        q_target_list[5] = grip_angle
+        movej(q_target_list, v=VEL, a=ACC)
+
+        # ToF 하강 전 pre-grip으로 개구를 edge 기반으로 미리 축소
+        pre_target_gap_mm = self._clamp(edge_mm + PRE_GRIP_OFFSET_MM, 0.0, GRIPPER_GAP_TABLE[0][1])
+        pre_grip_value = self._interpolate_cmd_from_gap(pre_target_gap_mm)
+        pre_grip_value = int(round(self._clamp(pre_grip_value, GRIPPER_MIN, GRIPPER_MAX)))
+        pre_est_gap_mm = self._interpolate_gap_from_cmd(pre_grip_value)
+        self.get_logger().info(
+            f"pre-grip: edge={edge_mm:.1f}mm, target_gap={pre_target_gap_mm:.1f}mm, "
+            f"estimated_gap={pre_est_gap_mm:.1f}mm, gripper_value={pre_grip_value}"
+        )
+        self.gripper.move(pre_grip_value)
+        wait(PRE_GRIP_WAIT)
+
+        # 현재 자세의 회전값 유지
+        cur_posx, _ = self.get_posx(get_current_posx, wait)
+        if cur_posx is None:
+            self.get_logger().error("get_current_posx returned empty data; aborting sequence")
+            return
+        rx, ry, rz = cur_posx[3], cur_posx[4], cur_posx[5]
+
+        # pick 지점 ToF 기반 하강 접근
+        trigger_target_tof_mm = self._target_tof_distance_mm(edge_mm, TOF_TARGET_TRIGGER_OFFSET_MM)
+        tcp_z_guard_mm = self._tcp_z_guard_mm(edge_mm)
+        z_after_tof, final_tof_mm, stop_reason = self._descend_with_tof(
+            speedl,
+            wait,
+            get_current_posx,
+            stop_fn,
+            stop_type,
+            trigger_target_tof_mm,
+            tcp_z_guard_mm,
+        )
+        self._stabilize_after_stop(wait, mwait_fn=mwait_fn, check_motion_fn=check_motion_fn)
+        if stop_reason != "tof_hit":
+            self.get_logger().warn(
+                f"Skip pick/place due to guard stop: reason={stop_reason}, z={z_after_tof:.1f}, tof={final_tof_mm}"
+            )
+            movej(home, VEL, ACC)
+            return "no_pick"
+
+        # pick 그리퍼 집기
+        final_grip_value = int(round(self._clamp(GRAB, GRIPPER_MIN, GRIPPER_MAX)))
+        final_est_gap_mm = self._interpolate_gap_from_cmd(final_grip_value)
+        self.get_logger().info(
+            f"final-grip: estimated_gap={final_est_gap_mm:.1f}mm, gripper_value={final_grip_value}, "
+            f"z={z_after_tof:.1f}, tof={final_tof_mm:.1f}mm"
+        )
+        self.gripper.move(final_grip_value)
+        wait(GRAB_WAIT)
+
+        # pick 이후 상단 이동
+        cur_after_pick_posx, _ = self.get_posx(get_current_posx, wait)
+        if cur_after_pick_posx is not None and len(cur_after_pick_posx) >= 3:
+            lift_start_z = float(cur_after_pick_posx[2])
+        else:
+            lift_start_z = float(z_after_tof)
+        pick_up = posx(x1, y1, lift_start_z + LIFT, rx, ry, rz)
+        cur_posj = get_current_posj()
+        best = self._select_ik_solution(ikin, pick_up, cur_posj, DR_BASE)
+        if best is None:
+            self.get_logger().error("No valid IK solution within joint limits for pick up")
+            return
+        _, sol, q_target_list = best
+        self.get_logger().info(f"Selected IK sol={sol} for pick up")
+        q_target_list[5] = 0.0
+        movej(q_target_list, v=VEL, a=ACC,r=200)
+
+        # pick 이후 HOME 위치로 이동
+        home = posj(0, -20, 100, 0, 100, 90)
+        movej(home, VEL, ACC,r=50)
+
+        # 기준점에서 place 방향으로 접근 포즈 계산
+        cur_posj = get_current_posj()
+        ref_xyz = [370.0, 0.0, 500.0]
+        a, b, c = self._look_at_zyz(ref_xyz, [x2, y2, z2])
+        target_pose = posx(x2, y2, z2, a, b, c)
+        j4_sign = "positive" if y2 >= 0.0 else "negative"
+        best = self._select_ik_solution(ikin, target_pose, cur_posj, DR_BASE, j4_sign=j4_sign)
+        if best is None:
+            self.get_logger().error("No valid IK solution within joint limits for place approach")
+            return
+
+        _, sol, q_target_list = best
+        self.get_logger().info(f"Selected IK sol={sol} for place approach")
+
+        q_target_list[5] = 0.0
+
+        # 목표점으로 movej 이동
+        movej(q_target_list, v=VEL, a=ACC)
+
+        # movej 후 현재 자세 가져오기 (하강용 자세)
+        cur_after_posx, _ = get_current_posx()
+        if not cur_after_posx or len(cur_after_posx) < 6:
+            raise RuntimeError("get_current_posx returned invalid data after target movej")
+
+        # J1~J5는 유지한 채 J6만 보정해 그리퍼 개방축이 지면과 평행하도록 맞춤
+        cur_after_posj = get_current_posj()
+        if cur_after_posj is not None and len(cur_after_posj) >= 6:
+            delta_j6 = self._compute_j6_open_axis_level_delta(cur_after_posx)
+            if abs(delta_j6) > 0.1:
+                cur_posj_list = cur_after_posj.tolist() if hasattr(cur_after_posj, "tolist") else list(cur_after_posj)
+                target_j6 = cur_posj_list[5] + delta_j6
+                target_j6 = max(JOINT_LIMITS_DEG[5][0], min(JOINT_LIMITS_DEG[5][1], target_j6))
+                j6_only_target = [cur_posj_list[0], cur_posj_list[1], cur_posj_list[2], cur_posj_list[3], cur_posj_list[4], target_j6]
+                self.get_logger().info(f"J6 leveling: delta={delta_j6:.2f} deg, target_j6={target_j6:.2f} deg")
+                movej(j6_only_target, v=min(VEL, 30), a=min(ACC, 30))
+
+        self.gripper.move(RELEASE)
+        wait(RELEASE_WAIT)
+
+        # HOME 위치로 이동
+        home = posj(0, -20, 100, 0, 100, 90)
+        movej(home, VEL, ACC)
+        return "done"
+
+    # 분리수거 처리 순서
+    def run(self, trash_list):
+        trash_items = self.normalize_trash_list(trash_list)
+        if not trash_items:
+            return
+
+        try:
+            self._connect_tof()
+        except Exception as exc:
+            self.get_logger().error(f"ToF connect failed: {exc}")
+            return
+
+        try:
+            for trash in trash_items:
+                try:
+                    job = self.create_job(trash)
+                except Exception as exc:
+                    self.get_logger().warn(f"invalid input data skipped: {exc}")
+                    continue
+                status = self.run_job(job["pick"], job["edge"], job["angle"], job["place"])
+                if status == "no_pick":
+                    print("해당 위치에 pick 가능한 쓰레기가 없습니다")
+                else:
+                    print(f"{job['id']}을 분리수거 완료했습니다")
+        finally:
+            self._close_tof()
+
+    # ID별로 type 이름 지정해주기
+    def type_id(self, value):
+        mapping = {
+            0.0: "PLASTIC",
+            1.0: "CAN",
+            2.0: "PAPER",
+            3.0: "BOX",
+            4.0: "GLASS",
+            5.0: "vinyl",
+            -1.0: "UNKNOWN",
+        }
+        try:
+            return mapping.get(float(value), str(value).upper())
+        except (TypeError, ValueError):
+            return str(value).upper()
+
+def main(args=None):
+    rclpy.init(args=args)
+    dsr_node = rclpy.create_node("dsr_node", namespace=ROBOT_ID)
+    DR_init.__dsr__node = dsr_node
+
+    test = RecycleNew()
+    trash = test_data()
+    test.run(trash)
+
+    test.destroy_node()
+    dsr_node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

@@ -396,7 +396,7 @@ class RecycleNew(Node):
 
 # 테스트용 데이터
 def test_data():
-    trash = [[2.0, 500, 100, 145, 50]]
+    trash = [[2.0, 500, 100, 140, 50]]
     bin_pos = [[700, 500]]
     return trash, bin_pos
 

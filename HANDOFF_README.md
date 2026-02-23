@@ -17,11 +17,11 @@ ROS2 노드 없이 독립 실행 가능한 테스트 파이프라인(`test_pipel
 - ✅ Bin 위치 7개 선택 (마우스 클릭)
 - ✅ Gemini API 연결 및 Step 1~3 호출
 - ✅ Qt 백엔드 OpenCV 호환 처리
+- ✅ Calibration 좌표 변환 (camcalib.npz 적용)
+- ✅ 전체 1사이클 테스트 (메뉴 6번, `test_pipeline.py`)
 
 **아직 미검증 / 남은 작업:**
 - ⬜ RealSense Depth 스트림 동시 촬영 (`capture_snapshot_and_depth`)
-- ⬜ Calibration 좌표 변환 (camcalib.npz 적용)
-- ⬜ 전체 1사이클 테스트 (메뉴 6번)
 - ⬜ ROS2 노드 연결
 - ⬜ Output → Control 전달 통신 구조
 
@@ -71,9 +71,9 @@ perception/
   │
   ├─ Step 3: classify_object(gemini, bbox_img) → type_id (0~6)
   │
-  ├─ 좌표 변환: gemini_to_robot(center, roi, depth_m) → tx, ty, tz
+  ├─ 좌표 변환: gemini_to_robot(center, roi, depth_m) → tx, ty
   │
-  └─ Output: [type_id, tx, ty, tz, t_angle, bx, by]
+  └─ Output: [type_id, tx, ty, short_side_px, target['angle'], bx, by]
              → Control 파트로 전달
 ```
 
@@ -82,16 +82,16 @@ perception/
 ## 4. Output 형식
 
 ```python
-output = [type_id, tx, ty, tz, t_angle, bx, by]
+output = [type_id, tx, ty, short_side_px, target['angle'], bx, by]
 ```
 
 | 인덱스 | 이름 | 타입 | 단위 | 설명 |
 |--------|------|------|------|------|
 | 0 | type_id | int | - | 카테고리 (아래 표 참조) |
-| 1 | tx | float | cm | 로봇 작업좌표 X |
-| 2 | ty | float | cm | 로봇 작업좌표 Y |
-| 3 | tz | float | cm | 로봇 작업좌표 Z (depth 기반) |
-| 4 | t_angle | float | ° | 그리퍼 접근 각도 (0~180) |
+| 1 | tx | float | mm | 로봇 작업좌표 X |
+| 2 | ty | float | mm | 로봇 작업좌표 Y |
+| 3 | short_side_px | int | px | bbox의 짧은 변 길이 |
+| 4 | target['angle'] | float | ° | 그리퍼 접근 각도 (0~180) |
 | 5 | bx | int | px | 쓰레기통 위치 X (이미지 픽셀) |
 | 6 | by | int | px | 쓰레기통 위치 Y (이미지 픽셀) |
 
@@ -111,18 +111,10 @@ output = [type_id, tx, ty, tz, t_angle, bx, by]
 
 ## 5. 주요 결정사항 & 논의 필요 사항
 
-### 5-1. Depth / 높이값 처리 (논의 필요!)
+### 5-1. Z값 처리 (결정)
 
-현재 calibration.py는 **RealSense depth**로 tx, ty, tz를 모두 계산합니다.
-그런데 **투명한 플라스틱 등은 RealSense depth가 안 잡히는 문제**가 있어서,
-높이(z)는 **ToF 센서에 일임**하자는 논의가 있었습니다.
-
-**선택지:**
-1. **고정 depth 상수** — 카메라~테이블 거리가 일정하니 상수로 tx, ty만 계산
-2. **ToF 값을 calibration에 넘기기** — ToF depth → pixel_to_robot()에 전달
-3. **RealSense depth 그대로 사용** — 투명 물체는 실패 가능성 있음
-
-→ 파트장님과 상의 후 결정 필요
+Z값은 **Control 파트에서 측정**합니다.  
+Perception에서는 Z를 계산/전달하지 않고, `short_side_px`와 `target['angle']`을 포함해 전달합니다.
 
 ### 5-2. init_camera() 리턴값 변경
 

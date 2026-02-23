@@ -5,6 +5,42 @@ R.O.S.T - 설정 파일 (config.py)
 """
 
 import os
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+
+def _load_env_file_fallback(path: Path) -> None:
+    """python-dotenv가 없을 때 최소 파서로 KEY=VALUE를 로드한다."""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        key, value = s.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+# utils/.env를 자동 로드해서 실행 환경마다 별도 export 없이 사용 가능하게 한다.
+# 설치본(install)에서 실행할 때도 src 경로의 .env를 찾을 수 있게 후보 경로를 순회한다.
+_this_dir = Path(__file__).resolve().parent
+_env_candidates = [_this_dir / ".env"]
+
+for parent in _this_dir.parents:
+    _env_candidates.append(parent / "src" / "estimation" / "estimation" / "utils" / ".env")
+
+for _env_path in _env_candidates:
+    if _env_path.exists():
+        if load_dotenv is not None:
+            load_dotenv(_env_path)
+        else:
+            _load_env_file_fallback(_env_path)
+        break
 
 # ── Gemini API ──────────────────────────────────────────
 # [수정 포인트] API 키는 환경변수로 관리. 없으면 직접 입력.

@@ -1,7 +1,0 @@
-# my_pkg/srv/ProcessImage.srv
-sensor_msgs/Image image
-sensor_msgs/Image vis
-float32[] tcoordinates
-float32[] ccoordinates
----
-string success_message

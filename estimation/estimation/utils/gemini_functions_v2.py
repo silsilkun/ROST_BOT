@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 from google import genai
 from google.genai import types
-from config import (
+from estimation.utils.config import (
     GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TEMPERATURE,
     GEMINI_THINKING_BUDGET_SPATIAL, GEMINI_THINKING_BUDGET_CLASSIFY,
     CATEGORY_LIST, CATEGORIES,
@@ -245,12 +245,26 @@ def select_target_object(client, roi_image: np.ndarray) -> dict | None:
         for v in r["box_2d"] + center:                                     # [안전장치] 좌표범위
             assert 0 <= v <= 1000, f"범위초과: {v}"
 
+        angle_raw = r["angle"]
+        if isinstance(angle_raw, list):
+            # Gemini가 리스트를 줄 때는 첫 숫자값을 사용하고, 없으면 0도로 폴백.
+            nums = []
+            for v in angle_raw:
+                try:
+                    nums.append(float(v))
+                except (TypeError, ValueError):
+                    continue
+            angle = nums[0] if nums else 0.0
+            print(f"[보정] angle 리스트 입력 → {angle_raw} -> {angle}")
+        else:
+            angle = float(angle_raw)
+
         out = {"bbox": r["box_2d"], "center": center,
-               "angle": float(r["angle"]), "label": r.get("label", "?")}
+               "angle": angle, "label": r.get("label", "?")}
         print(f"[Step 2] '{out['label']}' center={out['center']} "
               f"angle={out['angle']}°")
         return out
-    except (json.JSONDecodeError, KeyError, AssertionError) as e:
+    except (json.JSONDecodeError, KeyError, AssertionError, TypeError, ValueError) as e:
         print(f"[에러] Step2: {e}\n  원본: {resp.text}")
         return None
 

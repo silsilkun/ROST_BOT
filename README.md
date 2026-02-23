@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ROST_BOT
 본 프로젝트는 ROS2 Humble이 설치되어 있는 환경을 기준으로 동작합니다.
 ## 실행 순서
@@ -67,7 +66,7 @@ scipy 버전: 1.15.3
 1) test_client 성공
 2) estimation 단독 실행으로 성공
 3) rost_interfaces 수정
-=======
+
 # 260210 Tuesday
 - 전체 쓰레기 더미 분류 완료 
 - 오분류 2개 (토마토 캔, 찌그러진 플라스틱 컵 = vinyl)
@@ -85,4 +84,3 @@ scipy 버전: 1.15.3
 - gemini_functions_v2.py가 0211 최종 ver
 - main_pipeline.py은 수환님 시퀀스 파악용 코드
 - test_pipeline.py 실행 시 노드 없이 전체 utils 테스트 가능
->>>>>>> 0210-per+est

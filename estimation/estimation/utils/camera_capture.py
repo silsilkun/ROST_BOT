@@ -8,7 +8,7 @@ RealSense RGB + Depth 스냅샷 캡처 + ROI/bbox 크롭
 
 import numpy as np
 import cv2
-from config import REALSENSE_WIDTH, REALSENSE_HEIGHT, REALSENSE_FPS, GEMINI_COORD_RANGE
+from estimation.utils.config import REALSENSE_WIDTH, REALSENSE_HEIGHT, REALSENSE_FPS, GEMINI_COORD_RANGE
 
 try:
     import pyrealsense2 as rs
@@ -27,26 +27,40 @@ def init_camera():
     if not REALSENSE_AVAILABLE:
         return None, None
 
-    pipeline = rs.pipeline()
-    config = rs.config()
+    # 요청 설정을 우선 시도하고, 실패하면 장치 호환성이 높은 프로파일로 폴백한다.
+    candidates = [
+        (REALSENSE_WIDTH, REALSENSE_HEIGHT, REALSENSE_FPS),
+        (640, 480, 15),
+        (640, 480, 5),
+        (848, 480, 10),
+    ]
 
-    # [수정 포인트] 스트림 설정을 바꾸려면 여기만 수정
-    config.enable_stream(rs.stream.color, REALSENSE_WIDTH, REALSENSE_HEIGHT,
-                         rs.format.bgr8, REALSENSE_FPS)
-    config.enable_stream(rs.stream.depth, REALSENSE_WIDTH, REALSENSE_HEIGHT,
-                         rs.format.z16, REALSENSE_FPS)
+    last_error = None
+    for width, height, fps in candidates:
+        pipeline = rs.pipeline()
+        config = rs.config()
+        config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
+        config.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
 
-    pipeline.start(config)
+        try:
+            pipeline.start(config)
+            align = rs.align(rs.stream.color)
 
-    # Depth를 RGB에 맞춰 정렬 (픽셀 위치가 1:1 대응되게)
-    align = rs.align(rs.stream.color)
+            # 오토 노출 안정화 (첫 30프레임 버리기)
+            for _ in range(30):
+                pipeline.wait_for_frames()
 
-    # 오토 노출 안정화 (첫 30프레임 버리기)
-    for _ in range(30):
-        pipeline.wait_for_frames()
+            print(f"[카메라] 초기화 완료 ({width}x{height}@{fps}, RGB+Depth)")
+            return pipeline, align
+        except Exception as exc:
+            last_error = exc
+            try:
+                pipeline.stop()
+            except Exception:
+                pass
+            print(f"[경고] RealSense 프로파일 실패 ({width}x{height}@{fps}): {exc}")
 
-    print(f"[카메라] 초기화 완료 ({REALSENSE_WIDTH}x{REALSENSE_HEIGHT}, RGB+Depth)")
-    return pipeline, align
+    raise RuntimeError(f"[에러] 사용 가능한 RealSense 스트림 프로파일이 없습니다: {last_error}")
 
 
 def stop_camera(cam):

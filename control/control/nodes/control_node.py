@@ -1,12 +1,9 @@
 from rost_interfaces.srv import EstimationToControl
-from rost_interfaces.action import Circulation
 
 import rclpy
 from rclpy.node import Node
-from rclpy.action import ActionServer
 from rclpy.executors import MultiThreadedExecutor
 
-from control.utils import recycle_new
 from control.utils.recycle_new import RecycleNew
 import DR_init
 
@@ -14,100 +11,65 @@ import DR_init
 ROBOT_ID = "dsr01"
 ROBOT_MODEL = "e0509"
 
-# 속도 가속도 오프셋 (VEL, ACC 값만 수정하면됨)
-VEL = 50
-ACC = 30
-
-# wait 오프셋
-BASE_VEL = 20.0
-MAX_VEL = 100.0
-WAIT_SEC_PER_VEL = 0.03
-
-VEL = min(VEL, MAX_VEL)
-wait_offset = max(0.0, VEL - BASE_VEL) * WAIT_SEC_PER_VEL
-
-# 로봇팔 오프셋
-PICK_APPROACH = 150
-PICK_DESCENT = 90
-LIFT = 280
-
-# 그리퍼 오프셋
-GRAB = 500
-RELEASE = 0
-
-# 관절 제한 (deg)
-JOINT_LIMITS_DEG = [
-    (-360.0, 360.0),  # J1
-    (-95.0, 95.0),    # J2
-    (-135.0, 135.0),  # J3
-    (-360.0, 360.0),  # J4
-    (-135.0, 135.0),  # J5
-    (-360.0, 360.0),  # J6
-]
-
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 
 
-
 class ControlNode(Node):
-    def __init__(self):
+    def __init__(self, robot: RecycleNew):
         super().__init__('control_node')
+        self._robot = robot
+        self._srv = self.create_service(
+            EstimationToControl,
+            'estimation_to_control',
+            self.handle_estimation_to_control,
+        )
+        self.get_logger().info('Control Node ready: /estimation_to_control')
 
-        # Create an action server for the Circulation action
-        self.action_server = ActionServer(self, Circulation, 'circulation_action', self.execute_callback)
-        # Create a service server for EstimationToControl service
-        self.srv = self.create_service(EstimationToControl, 'estimation_to_control', self.handle_estimation_to_control)
-
-    ''' Create action server definitions '''
-    async def execute_callback(self, goal_handle):
-        self.get_logger().info('Received goal request from Estimation Node')
-
-        feedback = goal_handle.Feedback()
-        feedback.status_signal = "동작 진행 중"
-        goal_handle.publish_feedback(feedback)
-
-        # Dummy processing (replace with actual control logic)
-        result = Circulation.Result()
-        result.completion_signal = "동작 완료"
-
-        goal_handle.succeed()
-
-        return result
-    
-    def timer_callback(self):
-        if self.processing_complete:
-            self.timer.cancel()
-    ''' End of action server definitions '''
-    
-    ''' Create service server definitions '''
     def handle_estimation_to_control(self, request, response):
-        self.get_logger().info('Received request from Estimation Node')
+        data = list(request.data or [])
+        if len(data) < 7:
+            response.success = False
+            response.message = f"Expected 7 floats, got {len(data)}"
+            return response
 
-        self.trash_coordinates = request.tcoordinates
-        self.can_coordinates = request.ccoordinates
+        type_id, tx, ty, tz, angle, bx, by = data[:7]
+        trash_list = [float(type_id), float(tx), float(ty), float(tz), float(angle)]
+        bin_list = [[float(bx), float(by)]]
 
-        # Dummy processing (replace with actual control logic)
-        response.control_signal = "좌표 수신 완료"
+        try:
+            self._robot.run(trash_list, bin_list)
+        except Exception as exc:
+            response.success = False
+            response.message = f"Control run failed: {exc}"
+            return response
 
+        response.success = True
+        response.message = "OK"
         return response
-    
+
+
 def main(args=None):
     rclpy.init(args=args)
-    dsr_node = rclpy.create_node("dsr_node", namespace=recycle_new.ROBOT_ID)
+
+    dsr_node = rclpy.create_node("dsr_node", namespace=ROBOT_ID)
     DR_init.__dsr__node = dsr_node
 
-    control_node = ControlNode()
-    executor = MultiThreadedExecutor()
-    executor.add_node(control_node)
-    executor.spin_once()
-    trash = control_node.trash_coordinates
-    bin_pos = control_node.can_coordinates
-
     robot = RecycleNew()
-    robot.run(trash, bin_pos)
+    control_node = ControlNode(robot)
 
-    control_node.destroy_node()
-    robot.destroy_node()
-    dsr_node.destroy_node()
-    rclpy.shutdown()
+    executor = MultiThreadedExecutor()
+    executor.add_node(dsr_node)
+    executor.add_node(robot)
+    executor.add_node(control_node)
+
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        control_node.destroy_node()
+        robot.destroy_node()
+        dsr_node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()

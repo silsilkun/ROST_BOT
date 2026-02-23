@@ -7,40 +7,13 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/Float64Array.msg"
-  "msg/Num.msg"
-  "msg/Sphere.msg"
-  "srv/AddThreeInts.srv"
-  "srv/PerceptionToEstimation.srv"
-  "srv/EstimationToControl.srv"
-  "srv/PerceptionToControl.srv"
-  "srv/ControlToPerception.srv"
-  "srv/PerEstToControl.srv"
-  "action/Circulation.action"
 
-  "msg/TrashPoint.msg"
-  "msg/BinPoint.msg"
-  "msg/TrashBinPoint.msg"
-  "srv/AddThreeInts.srv"
-  "srv/PerceptionToEstimation.srv"
-  "srv/PerceptionCoordsToEstimation.srv"
+rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/EstimationToControl.srv"
-  "srv/PerceptionToEstimationRawImage.srv"
-  "srv/PerceptionToEstimationVisImage.srv"
-  "srv/PerceptionToEstimationTrashPoints.srv"
-  "srv/PerceptionToEstimationBinPoints.srv"
-  "srv/EstimationToControlTrashBinPoints.srv"
-  "srv/PerceptionToControl.srv"
-  "srv/ControlToPerception.srv"
-  "srv/PerEstToControl.srv"
-  DEPENDENCIES geometry_msgs std_msgs sensor_msgs builtin_interfaces
+  DEPENDENCIES builtin_interfaces
 )
 
 if(BUILD_TESTING)

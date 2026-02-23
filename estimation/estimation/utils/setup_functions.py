@@ -8,7 +8,7 @@ ROI 선택(마우스 드래그) + bin 위치 7개 선택(마우스 클릭)
 
 import cv2
 import numpy as np
-from config import CATEGORIES
+from estimation.utils.config import CATEGORIES
 
 
 # ── 공용 창 이름 (프로그램 전체에서 1개만 사용) ────────

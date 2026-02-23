@@ -15,7 +15,7 @@ R.O.S.T - 좌표 변환 (calibration.py)
 import os
 import numpy as np
 import cv2
-from config import (
+from estimation.utils.config import (
     CALIB_NPZ, DEPTH_MIN_M, DEPTH_MAX_M,
     DEPTH_SAMPLE_RADIUS, OFFSET_X, OFFSET_Y, OFFSET_Z,
     GEMINI_COORD_RANGE,
@@ -43,8 +43,7 @@ def _load_calib():
 
     # [안전장치] 파일 존재 확인
     if not os.path.exists(path):
-        print(f"[경고] 캘리브 파일 없음: {path}")
-        print("       → 더미 변환 사용 (좌표 정확도 보장 안 됨)")
+        print(f"[에러] 캘리브 파일 없음: {path}")
         return None
 
     data = np.load(path)
@@ -72,9 +71,8 @@ def pixel_to_robot(u: int, v: int, depth_map_m: np.ndarray):
     """
     calib = _load_calib()
     if calib is None:
-        # 캘리브 파일 없으면 더미 반환
-        print("[경고] 캘리브 없음 → 픽셀 좌표 그대로 반환")
-        return float(u), float(v), 0.0
+        print("[에러] 캘리브 데이터 없음 → 좌표 변환 중지")
+        return None
 
     T, K, D = calib["T"], calib["K"], calib["D"]
     H, W = depth_map_m.shape[:2]

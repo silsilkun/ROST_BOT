@@ -1,5 +1,4 @@
-float32[] tcoordinates
-float32[] ccoordinates
+float32[] data
 ---
-string success_message
-float64[] values
+bool success
+string message

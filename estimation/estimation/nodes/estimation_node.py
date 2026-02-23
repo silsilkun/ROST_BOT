@@ -1,7 +1,8 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float32MultiArray
+from rost_interfaces.srv import EstimationToControl
 
+# 기존 import 그대로 유지
 from estimation.utils.config import CATEGORIES
 from estimation.utils.setup_functions import (
     select_roi,
@@ -30,24 +31,21 @@ class VisionPipelineNode(Node):
     def __init__(self):
         super().__init__('vision_pipeline_node')
 
-        # ROS2 Publisher
-        self.publisher_ = self.create_publisher(
-            Float32MultiArray,
-            '/rost_output',
-            10
+        # 🔥 Service Client 생성
+        self.client = self.create_client(
+            EstimationToControl,
+            'estimation_to_control'
         )
+
+        while not self.client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('⏳ Waiting for service...')
 
         self.get_logger().info("Vision Pipeline Node Started")
 
-        # ─────────────────────────────
         # 카메라 & Gemini 초기화
-        # ─────────────────────────────
         self.cam = init_camera()
         self.gemini = init_gemini_client()
 
-        # ─────────────────────────────
-        # 1회 설정: ROI + Bin 위치
-        # ─────────────────────────────
         frame = capture_snapshot(self.cam)
 
         self.roi = select_roi(frame)
@@ -59,36 +57,25 @@ class VisionPipelineNode(Node):
             rclpy.shutdown()
             return
 
-        self.cycle = 0
-
-        # 타이머 루프 (0.5초 주기)
         self.timer = self.create_timer(0.5, self.main_loop)
 
 
     def main_loop(self):
-        self.cycle += 1
-        self.get_logger().info(f"── Cycle #{self.cycle} ──")
 
-        # RGB + Depth 캡처
         frame, depth_m = capture_snapshot_and_depth(self.cam)
         roi_img = crop_to_roi(frame, self.roi)
 
-        # Step 1: 물체 존재 확인
         if not check_objects_exist(self.gemini, roi_img):
             self.get_logger().info("✅ 분리수거 완료!")
             return
 
-        # Step 2: 타겟 선정
         target = select_target_object(self.gemini, roi_img)
         if target is None:
-            self.get_logger().warn("타겟 선정 실패 → 건너뜀")
             return
 
-        # Step 3: 분류
         bbox_img = crop_to_bbox(roi_img, target["bbox"])
         type_id = classify_object(self.gemini, bbox_img)
 
-        # Step 4: 좌표 변환
         coords = gemini_to_robot(
             target["center"],
             self.roi,
@@ -96,16 +83,17 @@ class VisionPipelineNode(Node):
         )
 
         if coords is None:
-            self.get_logger().warn("좌표 변환 실패 → 건너뜀")
+            self.get_logger().error("❌ 좌표 변환 실패: 안전을 위해 노드를 종료합니다.")
+            self.timer.cancel()
+            if rclpy.ok():
+                rclpy.shutdown()
             return
 
         tx, ty, tz = coords
 
-        # Bin 위치
         cat_name = [k for k, v in CATEGORIES.items() if v == type_id][0]
         bx, by = self.bins.get(cat_name, self.bins["unknown"])
 
-        # 최종 Output
         output = [
             float(type_id),
             float(tx),
@@ -116,11 +104,24 @@ class VisionPipelineNode(Node):
             float(by)
         ]
 
-        self.get_logger().info(f"📦 output = {output} ({cat_name})")
+        self.get_logger().info(f"📤 Sending output: {output}")
 
-        msg = Float32MultiArray()
-        msg.data = output
-        self.publisher_.publish(msg)
+        # 🔥 Service 요청 생성
+        req = EstimationToControl.Request()
+        req.data = output
+
+        future = self.client.call_async(req)
+        future.add_done_callback(self.service_callback)
+
+
+    def service_callback(self, future):
+        try:
+            response = future.result()
+            self.get_logger().info(
+                f"📦 Server response: {response.success}, {response.message}"
+            )
+        except Exception as e:
+            self.get_logger().error(f"Service call failed: {e}")
 
 
     def destroy_node(self):
@@ -130,17 +131,12 @@ class VisionPipelineNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
     node = VisionPipelineNode()
-
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
-
-
-if __name__ == '__main__':
-    main()
+        if rclpy.ok():
+            rclpy.shutdown()

@@ -79,10 +79,27 @@ def crop_to_bbox(roi_image: np.ndarray, bbox_normalized: list,
     margin_ratio: 여유 마진 비율 (기본 10%)
     """
     h, w = roi_image.shape[:2]
-    ymin, xmin, ymax, xmax = bbox_normalized
+
+    # [안전장치] 입력 형식/값 보정
+    if not (isinstance(bbox_normalized, (list, tuple)) and len(bbox_normalized) == 4):
+        print(f"[경고] bbox 형식 이상: {bbox_normalized} → 원본 반환")
+        return roi_image
+    try:
+        ymin, xmin, ymax, xmax = [float(v) for v in bbox_normalized]
+    except (TypeError, ValueError):
+        print(f"[경고] bbox 값이 숫자가 아님: {bbox_normalized} → 원본 반환")
+        return roi_image
+
+    # [보정] 좌표 순서가 뒤집혀도 자동 복구
+    ymin, ymax = min(ymin, ymax), max(ymin, ymax)
+    xmin, xmax = min(xmin, xmax), max(xmin, xmax)
+    ymin = max(0.0, min(GEMINI_COORD_RANGE, ymin))
+    ymax = max(0.0, min(GEMINI_COORD_RANGE, ymax))
+    xmin = max(0.0, min(GEMINI_COORD_RANGE, xmin))
+    xmax = max(0.0, min(GEMINI_COORD_RANGE, xmax))
 
     # [수정 포인트] 정규화 범위가 바뀌면 GEMINI_COORD_RANGE만 수정
-    px = lambda val, size: int(val / GEMINI_COORD_RANGE * size)
+    px = lambda val, size: int(round(val / GEMINI_COORD_RANGE * size))
     x1, y1 = px(xmin, w), px(ymin, h)
     x2, y2 = px(xmax, w), px(ymax, h)
 

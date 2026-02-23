@@ -15,24 +15,51 @@ uv 좌표(이미지 픽셀) → 로봇 좌표(로봇팔이 실제 이동할 좌�
 import numpy as np
 from config import GEMINI_COORD_RANGE
 
+# ── 픽셀→로봇 보정 (수동 캘리브레이션 3점) ──────────────
+# [u, v, 1] @ A = [tx, ty]  (단위: mm)
+USE_PIXEL_AFFINE = True
+PIXEL_TO_ROBOT_AFFINE = np.array([
+    [-2.55879128e-03,  1.15706105e+00],
+    [ 1.03691970e+00, -1.23309370e-01],
+    [ 2.46053004e+02, -6.93681979e+02],
+], dtype=float)
 
-def load_transform_matrix(filepath: str = None) -> np.ndarray:
+
+def load_transform_matrix(filepath: str = None):
     """
-    변환 행렬 로드. 없으면 단위 행렬(변환 없음) 반환.
-    [수정 포인트] 파트장님 캘리브레이션 완료 후 filepath 지정
+    캘리브레이션 데이터 로드.
+    - camcalib.npz: T_cam_to_work(4x4), camera_matrix(3x3) 사용
+    - npy/npz 단일 3x3/4x4 행렬: 그대로 사용
+    없으면 단위 행렬(변환 없음) 반환.
     """
     if filepath is not None:
         try:
-            matrix = np.load(filepath)
-            print(f"[캘리브레이션] 행렬 로드: {filepath} (shape={matrix.shape})")
-            # [안전장치] 행렬 크기 검증
-            assert matrix.shape in ((3, 3), (4, 4)), \
-                f"변환 행렬 shape이 이상합니다: {matrix.shape}"
-            return matrix
+            data = np.load(filepath)
+            # npz일 경우
+            if isinstance(data, np.lib.npyio.NpzFile):
+                if "T_cam_to_work" in data and "camera_matrix" in data:
+                    T = data["T_cam_to_work"]
+                    K = data["camera_matrix"]
+                    print(f"[캘리브레이션] camcalib 로드: {filepath} (T:{T.shape}, K:{K.shape})")
+                    return {"T_cam_to_work": T, "camera_matrix": K}
+                # 단일 행렬 저장 케이스
+                if len(data.files) == 1:
+                    matrix = data[data.files[0]]
+                    print(f"[캘리브레이션] 행렬 로드: {filepath} (shape={matrix.shape})")
+                    assert matrix.shape in ((3, 3), (4, 4)), \
+                        f"변환 행렬 shape이 이상합니다: {matrix.shape}"
+                    return matrix
+                print(f"[경고] 알 수 없는 npz 구조: {data.files}")
+            else:
+                matrix = data
+                print(f"[캘리브레이션] 행렬 로드: {filepath} (shape={matrix.shape})")
+                assert matrix.shape in ((3, 3), (4, 4)), \
+                    f"변환 행렬 shape이 이상합니다: {matrix.shape}"
+                return matrix
         except FileNotFoundError:
             print(f"[에러] 파일 없음: {filepath}")
 
-    print("[경고] 변환 행렬 없음 → 단위 행렬 사용 (캘리브레이션 필요)")
+    print("[경고] 캘리브레이션 없음 → 단위 행렬 사용 (정확도 저하)")
     return np.eye(3)
 
 
@@ -55,12 +82,45 @@ def gemini_to_pixel(center_normalized: list, roi: tuple) -> tuple:
     return (pixel_u, pixel_v)
 
 
-def pixel_to_robot(pixel_u: int, pixel_v: int,
-                   transform_matrix: np.ndarray) -> tuple:
+def pixel_to_robot(pixel_u: int, pixel_v: int, transform_matrix) -> tuple:
     """
     이미지 픽셀 좌표(u,v) → 로봇 좌표(tx,ty).
-    [PLACEHOLDER] 변환 행렬이 실제 값이어야 정확한 좌표가 나온다.
+    - camcalib(dict): K + T_cam_to_work 사용, z=0 평면과의 교차로 계산
+    - 3x3/4x4 행렬: 기존 동차 좌표 변환
     """
+    if USE_PIXEL_AFFINE:
+        uv1 = np.array([pixel_u, pixel_v, 1.0], dtype=float)
+        tx, ty = uv1 @ PIXEL_TO_ROBOT_AFFINE
+        return (float(tx), float(ty))
+    # camcalib.npz 기반 (K, T)
+    if isinstance(transform_matrix, dict):
+        K = transform_matrix["camera_matrix"]
+        T = transform_matrix["T_cam_to_work"]
+        fx, fy = K[0, 0], K[1, 1]
+        cx, cy = K[0, 2], K[1, 2]
+
+        # 픽셀 → 카메라 좌표계 광선
+        x = (pixel_u - cx) / fx
+        y = (pixel_v - cy) / fy
+        ray_cam = np.array([x, y, 1.0], dtype=float)
+
+        # 카메라 → 작업좌표계 변환
+        R = T[:3, :3]
+        t = T[:3, 3]
+        origin_w = t
+        dir_w = R @ ray_cam
+
+        # 작업좌표계 z=0 평면과의 교차
+        if abs(dir_w[2]) < 1e-6:
+            print("[경고] 광선이 평면과 평행 → 좌표 계산 실패")
+            return (0.0, 0.0)
+        s = -origin_w[2] / dir_w[2]
+        point_w = origin_w + s * dir_w
+        # camcalib 기준은 cm로 저장되어 있음 → 최종 출력은 mm
+        tx, ty = float(point_w[0] * 10.0), float(point_w[1] * 10.0)
+        return (tx, ty)
+
+    # 기존 3x3/4x4 행렬 케이스
     uv_h = np.array([pixel_u, pixel_v, 1.0])      # 동차 좌표
     robot_h = transform_matrix @ uv_h              # 행렬 곱
     tx = float(robot_h[0] / robot_h[2])            # 동차 → 데카르트

@@ -221,13 +221,13 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
         bx, by = 0.0, 0.0
 
     # ── Output (7개) ──────────────────────────────
-    output = [type_id, tx, ty, target["angle"], short_side_px, bx, by]
+    output = [type_id, tx, ty, short_side_px, target["angle"], bx, by]
 
     print(f"\n  📦 Output: {output}")
     print(f"     분류:  {cat_name} (type_id={type_id})")
     print(f"     좌표:  tx={tx:.2f}, ty={ty:.2f}")
-    print(f"     각도:  {target['angle']}°")
     print(f"     짧은변(px): {short_side_px}")
+    print(f"     각도:  {target['angle']}°")
     print(f"     쓰레기통: ({bx}, {by})")
     return output
 

@@ -4,6 +4,7 @@ from rost_interfaces.srv import EstimationToControl
 
 # 기존 import 그대로 유지
 from estimation.utils.config import CATEGORIES
+from estimation.utils.config import GEMINI_COORD_RANGE
 from estimation.utils.setup_functions import (
     select_roi,
     select_bin_positions,
@@ -57,10 +58,18 @@ class VisionPipelineNode(Node):
             rclpy.shutdown()
             return
 
+        self.cycle = 0
+        self.request_in_flight = False
         self.timer = self.create_timer(0.5, self.main_loop)
 
 
     def main_loop(self):
+        # control 응답 전에 재요청이 쌓이면 동작이 겹치므로 차단한다.
+        if self.request_in_flight:
+            return
+
+        self.cycle += 1
+        self.get_logger().info(f"── Cycle #{self.cycle} ──")
 
         frame, depth_m = capture_snapshot_and_depth(self.cam)
         roi_img = crop_to_roi(frame, self.roi)
@@ -91,8 +100,15 @@ class VisionPipelineNode(Node):
 
         tx, ty, tz = coords
 
-        cat_name = [k for k, v in CATEGORIES.items() if v == type_id][0]
+        cat_name = next((k for k, v in CATEGORIES.items() if v == type_id), "unknown")
         bx, by = self.bins.get(cat_name, self.bins["unknown"])
+
+        # main_pipeline 기준: bbox short side(ROI pixel) 계산. 현재는 로깅/디버깅 용도.
+        ymin, xmin, ymax, xmax = target["bbox"]
+        roi_h, roi_w = roi_img.shape[:2]
+        bbox_w = (xmax - xmin) / GEMINI_COORD_RANGE * roi_w
+        bbox_h = (ymax - ymin) / GEMINI_COORD_RANGE * roi_h
+        short_side_px = int(round(min(bbox_w, bbox_h)))
 
         output = [
             float(type_id),
@@ -104,12 +120,15 @@ class VisionPipelineNode(Node):
             float(by)
         ]
 
-        self.get_logger().info(f"📤 Sending output: {output}")
+        self.get_logger().info(
+            f"📤 Sending output: {output} ({cat_name}, short_side_px={short_side_px})"
+        )
 
         # 🔥 Service 요청 생성
         req = EstimationToControl.Request()
         req.data = output
 
+        self.request_in_flight = True
         future = self.client.call_async(req)
         future.add_done_callback(self.service_callback)
 
@@ -122,6 +141,8 @@ class VisionPipelineNode(Node):
             )
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
+        finally:
+            self.request_in_flight = False
 
 
     def destroy_node(self):

@@ -1,7 +1,7 @@
 # R.O.S.T Perception → Control 인수인계 문서
 
 **작성일:** 2025-02-11
-**작성:** 게토스구루 (PM) + Claude (코드 작성 보조)
+**작성:** 김진아 (PM) + Claude (코드 작성 보조)
 **대상:** 수환님 (Control/Node 통합 담당)
 
 ---
@@ -219,4 +219,4 @@ python test_pipeline.py
 
 ---
 
-*문의: 게토스구루 (PM) 또는 Claude 대화 기록 참조*
+*문의: 김진아 (PM) 또는 Claude 대화 기록 참조*

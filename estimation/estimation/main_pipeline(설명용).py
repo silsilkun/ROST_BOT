@@ -65,7 +65,7 @@ def main():
         if coords is None:
             print("❌ 좌표 변환 실패 -> 안전 중지")
             break
-        tx, ty, tz = coords
+        tx, ty, _tz = coords
 
         cat_name = next((k for k, v in CATEGORIES.items() if v == type_id), "unknown")
         bx, by = bins.get(cat_name, bins["unknown"])
@@ -76,7 +76,17 @@ def main():
         bbox_h = (ymax - ymin) / GEMINI_COORD_RANGE * roi_h
         short_side_px = int(round(min(bbox_w, bbox_h)))
 
-        output = [float(type_id), float(tx), float(ty), float(tz), float(target["angle"]), float(bx), float(by)]
+        # output format:
+        # [type_id, tx, ty, short_side_px, angle, bx, by]
+        output = [
+            float(type_id),
+            float(tx),
+            float(ty),
+            float(short_side_px),
+            float(target["angle"]),
+            float(bx),
+            float(by),
+        ]
         print(f"📦 output={output} ({cat_name}, short_side_px={short_side_px})")
 
 

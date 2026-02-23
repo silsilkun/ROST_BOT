@@ -98,7 +98,7 @@ class VisionPipelineNode(Node):
                 rclpy.shutdown()
             return
 
-        tx, ty, tz = coords
+        tx, ty, _tz = coords
 
         cat_name = next((k for k, v in CATEGORIES.items() if v == type_id), "unknown")
         bx, by = self.bins.get(cat_name, self.bins["unknown"])
@@ -110,14 +110,16 @@ class VisionPipelineNode(Node):
         bbox_h = (ymax - ymin) / GEMINI_COORD_RANGE * roi_h
         short_side_px = int(round(min(bbox_w, bbox_h)))
 
+        # output format:
+        # [type_id, tx, ty, short_side_px, angle, bx, by]
         output = [
             float(type_id),
             float(tx),
             float(ty),
-            float(tz),
+            float(short_side_px),
             float(target["angle"]),
             float(bx),
-            float(by)
+            float(by),
         ]
 
         self.get_logger().info(

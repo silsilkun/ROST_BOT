@@ -10,6 +10,7 @@ import DR_init
 
 ROBOT_ID = "dsr01"
 ROBOT_MODEL = "e0509"
+DEFAULT_PICK_Z_CM = 160.0
 
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
@@ -33,8 +34,15 @@ class ControlNode(Node):
             response.message = f"Expected 7 floats, got {len(data)}"
             return response
 
-        type_id, tx, ty, tz, angle, bx, by = data[:7]
-        trash_list = [float(type_id), float(tx), float(ty), float(tz), float(angle)]
+        # input format from estimation:
+        # [type_id, tx, ty, short_side_px, angle, bx, by]
+        type_id, tx, ty, short_side_px, angle, bx, by = data[:7]
+        z_cm = DEFAULT_PICK_Z_CM
+        self.get_logger().info(
+            f"Received: type={type_id}, tx={tx:.2f}, ty={ty:.2f}, "
+            f"short_side_px={short_side_px:.1f}, angle={angle:.1f}, z={z_cm:.1f}(default)"
+        )
+        trash_list = [float(type_id), float(tx), float(ty), float(z_cm), float(angle)]
         bin_list = [[float(bx), float(by)]]
 
         try:

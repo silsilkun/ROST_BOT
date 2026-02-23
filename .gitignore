@@ -1,7 +1,6 @@
 .vscode
 __pycache__/
 doosan-robot2/
-robot_system_bringup/
 log/
 tower_builder/
 ROST_BOT/

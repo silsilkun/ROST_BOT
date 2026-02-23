@@ -2,3 +2,4 @@
 doosan-robot2/
 robot_system_bringup/
 .env
+gemini_functions.py

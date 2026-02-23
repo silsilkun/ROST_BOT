@@ -1,5 +1,5 @@
 """
-R.O.S.T - Gemini API 함수 (gemini_functions.py)  ★ 핵심 모듈
+R.O.S.T - Gemini API 함수 (gemini_functions_v2.py)  ★ 핵심 모듈
 
 gemini-robotics-er-1.5-preview 3단계 호출:
   Step 1: 객체 존재 확인  ("쓰레기 남아있어?")

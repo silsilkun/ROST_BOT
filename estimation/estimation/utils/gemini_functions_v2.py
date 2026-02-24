@@ -211,7 +211,14 @@ Rules for the JSON values:
 - The box must be TIGHT: do NOT include background or nearby objects.
 - If your box includes any other object, redo it tighter around the chosen object.
 - "label" is a brief description like "crushed plastic cup" or "tomato can".
-- Every field is required. Always include corners, grasp_pts, and label."""
+- Every field is required. Always include corners, grasp_pts, and label.
+- CRITICAL: All 4 corner points MUST be different coordinates. 
+  Do NOT repeat the same point. If the object is axis-aligned (like a box), 
+  you still need 4 distinct corners:
+  Example for a horizontal box: [[100,200],[400,200],[400,400],[100,400]]
+  WRONG: [[100,200],[100,200],[400,400],[400,400]] ← only 2 unique points!
+- Even if the object is perfectly rectangular and aligned with the image axes, 
+  always return 4 unique corners in TL, TR, BR, BL order."""
 
 _P2_FALLBACK = """Pick ONE object that is easiest to grab. If multiple objects, choose the most isolated with clear edges.
 Return ONLY this JSON:
@@ -220,7 +227,8 @@ Rules:
 - Coordinates are normalized 0..1000 (top-left = 0,0).
 - corners order: TL, TR, BR, BL. Each point is [x,y].
 - grasp_pts are midpoints of the two faces the gripper should squeeze.
-- Always return JSON; never say you can't."""
+- Always return JSON; never say you can't.
+- All 4 corners must be different. Never repeat a point."""
 
 _P2_TIGHTEN = """Your last box was too large. Redo it.
 Pick ONE object and draw a TIGHT rotated box around ONLY that object.
@@ -231,7 +239,8 @@ Rules:
 - Coordinates are normalized 0..1000 (top-left = 0,0).
 - corners order: TL, TR, BR, BL. Each point is [x,y].
 - grasp_pts are midpoints of the two faces the gripper should squeeze.
-- If any other object would be inside the box, it is incorrect."""
+- If any other object would be inside the box, it is incorrect.
+- All 4 corners must be different coordinates. Never repeat a point."""
 
 _P2_AABB = """If rotated corners are hard, return an axis-aligned box instead.
 Return ONLY this JSON:

@@ -73,7 +73,7 @@ def print_setup_status(roi, bins):
 def test_camera(pipeline):
     """카메라 스냅샷 촬영 + 화면 표시"""
     print("\n[테스트] 카메라 스냅샷...")
-    frame = capture_snapshot(pipeline)
+    frame, depth_map = capture_snapshot(pipeline)
     print(f"  shape: {frame.shape}, dtype: {frame.dtype}")
     cv2.imshow("Camera Test", frame)
     cv2.waitKey(1)
@@ -88,7 +88,7 @@ def test_setup(pipeline):
     """ROI 선택 + Bin 위치 지정 (하나의 창에서 연속 진행)"""
     print("\n[설정] 초기 설정을 시작합니다.")
 
-    frame = capture_snapshot(pipeline)
+    frame, depth_map = capture_snapshot(pipeline)
     print(f"  스냅샷 촬영 완료 ({frame.shape[1]}x{frame.shape[0]})")
 
     # Step A: ROI 선택 (창이 여기서 열림)
@@ -128,7 +128,7 @@ def test_setup(pipeline):
 def manual_uv_click(pipeline, roi):
     """수동으로 중심/4코너를 클릭해 UV 좌표를 얻는다."""
     print("\n[수동] 중심 + 4코너를 클릭하세요 (TL → TR → BR → BL)")
-    frame = capture_snapshot(pipeline)
+    frame, depth_map = capture_snapshot(pipeline)
     if roi is not None:
         view = crop_to_roi(frame, roi)
         roi_offset = (roi[0], roi[1])
@@ -200,7 +200,7 @@ def manual_uv_click(pipeline, roi):
 def test_step1(gemini, pipeline, roi):
     """Gemini Step 1: 객체 존재 확인"""
     print("\n[테스트] Step 1 — 객체 존재 확인...")
-    frame = capture_snapshot(pipeline)
+    frame, depth_map = capture_snapshot(pipeline)
     roi_img = crop_to_roi(frame, roi)
 
     cv2.imshow("Step 1: ROI", roi_img)
@@ -210,7 +210,7 @@ def test_step1(gemini, pipeline, roi):
     print(f"  결과: {'쓰레기 있음 ✓' if result else '비어있음 ✗'}")
     cv2.destroyAllWindows()
     cv2.waitKey(100)
-    return result, roi_img
+    return result, roi_img, depth_map
 
 
 def test_step2(gemini, roi_img):
@@ -296,7 +296,7 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
     print("─" * 50)
 
     # Step 1
-    has_obj, roi_img = test_step1(gemini, pipeline, roi)
+    has_obj, roi_img, depth_map = test_step1(gemini, pipeline, roi)
     if not has_obj:
         print("  → 객체 없음, 사이클 종료")
         return None
@@ -310,7 +310,7 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
     type_id = test_step3(gemini, roi_img, target)
 
     # 좌표 변환 (placeholder)
-    tx, ty = uv_to_robot_coords(target["center"], roi, T)
+    tx, ty = uv_to_robot_coords(target["center"], roi, depth_map, T)
 
     # 물체 윤곽 기반으로 짧은변/각도 산출 (사진 픽셀 기준)
     def estimate_geom_from_contour(roi_img, bbox_norm, roi_rect, Tmat):
@@ -383,8 +383,8 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
         roi_x, roi_y, _, _ = roi_rect
         u1, v1 = int(round(roi_x + p1[0])), int(round(roi_y + p1[1]))
         u2, v2 = int(round(roi_x + p2[0])), int(round(roi_y + p2[1]))
-        tx1, ty1 = pixel_to_robot(u1, v1, Tmat)
-        tx2, ty2 = pixel_to_robot(u2, v2, Tmat)
+        tx1, ty1 = pixel_to_robot(u1, v1, depth_map, Tmat)
+        tx2, ty2 = pixel_to_robot(u2, v2, depth_map, Tmat)
         vx, vy = (tx2 - tx1), (ty2 - ty1)
         short_mm = int(round((vx ** 2 + vy ** 2) ** 0.5))
 
@@ -466,8 +466,8 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
         u2 = roi_x + px(sx2, roi_w)
         v2 = roi_y + px(sy2, roi_h)
 
-        tx1, ty1 = pixel_to_robot(u1, v1, T)
-        tx2, ty2 = pixel_to_robot(u2, v2, T)
+        tx1, ty1 = pixel_to_robot(u1, v1, depth_map, T)
+        tx2, ty2 = pixel_to_robot(u2, v2, depth_map, T)
         vx, vy = (tx2 - tx1), (ty2 - ty1)
         short_side_mm = int(round((vx ** 2 + vy ** 2) ** 0.5))
 
@@ -566,7 +566,7 @@ def main():
             if roi is None:
                 print("⚠️  초기 설정을 먼저 하세요 (메뉴 2)")
                 continue
-            frame = capture_snapshot(pipeline)
+            frame, depth_map = capture_snapshot(pipeline)
             roi_img = crop_to_roi(frame, roi)
             test_step2(gemini, roi_img)
 
@@ -574,7 +574,7 @@ def main():
             if roi is None:
                 print("⚠️  초기 설정을 먼저 하세요 (메뉴 2)")
                 continue
-            frame = capture_snapshot(pipeline)
+            frame, depth_map = capture_snapshot(pipeline)
             roi_img = crop_to_roi(frame, roi)
             target = select_target_object(gemini, roi_img)
             if target:

@@ -385,11 +385,19 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
         u2, v2 = int(round(roi_x + p2[0])), int(round(roi_y + p2[1]))
         tx1, ty1 = pixel_to_robot(u1, v1, depth_map, Tmat)
         tx2, ty2 = pixel_to_robot(u2, v2, depth_map, Tmat)
-        vx, vy = (tx2 - tx1), (ty2 - ty1)
-        short_mm = int(round((vx ** 2 + vy ** 2) ** 0.5))
-
-        ang = (np.degrees(np.arctan2(vy, vx)) + 180.0) % 180.0
-        # contour 짧은변 기준 yaw는 짧은변 직교방향이 그리퍼 접근방향인 경우가 많음
+        if (tx1 == 0.0 and ty1 == 0.0) or (tx2 == 0.0 and ty2 == 0.0):
+            print("[경고] depth 실패 → target angle/px 기반 fallback")
+            angle_out = float(target["angle"])
+            short_side_mm = short_side_px  # 픽셀 값 그대로 (보정 필요하면 나중에)
+        else:
+            vx, vy = (tx2 - tx1), (ty2 - ty1)
+            short_side_mm = int(round((vx ** 2 + vy ** 2) ** 0.5))
+            angle_out = np.degrees(np.arctan2(abs(vy), abs(vx)))
+            ang = (90.0 + np.degrees(np.arctan2(vy, vx))) % 180.0
+            print(f"[DEBUG contour] vx={vx:.2f}, vy={vy:.2f}, raw_atan2={np.degrees(np.arctan2(vy, vx)):.2f}, ang={ang:.2f}")
+            # ang = (np.degrees(np.arctan2(vy, vx)) + 180.0) % 180.0
+            # contour 짧은변 기준 yaw는 짧은변 직교방향이 그리퍼 접근방향인 경우가 많음
+            # 기존 angle_out 계산 후, 최종 output 전에 추가:
         if GRIPPER_ANGLE_USE_GRASP_NORMAL:
             ang = (ang + 90.0) % 180.0
         if USE_COMPLEMENTARY_GRIPPER_ANGLE:
@@ -471,7 +479,9 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
         vx, vy = (tx2 - tx1), (ty2 - ty1)
         short_side_mm = int(round((vx ** 2 + vy ** 2) ** 0.5))
 
-        angle_out = (np.degrees(np.arctan2(vy, vx)) + 180.0) % 180.0
+        # angle_out = (np.degrees(np.arctan2(vy, vx)) + 180.0) % 180.0
+        angle_out = np.degrees(np.arctan2(abs(vy), abs(vx)))
+        print(f"[DEBUG seg] vx={vx:.2f}, vy={vy:.2f}, raw_atan2={np.degrees(np.arctan2(vy, vx)):.2f}, angle_out={angle_out:.2f}")
         if seg_is_grasp and GRIPPER_ANGLE_USE_GRASP_NORMAL:
             angle_out = (angle_out + 90.0) % 180.0
         if USE_COMPLEMENTARY_GRIPPER_ANGLE:
@@ -480,12 +490,15 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
 
     bbox_mode = target.get("bbox_mode", "obb")
 
+    # --- 박스 고정 보정 ---
+    if type_id == CATEGORIES["box"]:
+            short_side_mm = 86  # 실측 고정값
+            print(f"[보정] box → target angle={angle_out:.1f}°, short_side={short_side_mm}mm 고정")
+
     # Bin 위치
     cat_name = [k for k, v in CATEGORIES.items() if v == type_id][0]
-    if bins:
-        bx, by = bins.get(cat_name, bins["unknown"])
-    else:
-        bx, by = 0.0, 0.0
+    from config import BIN_POSITIONS
+    bx, by = BIN_POSITIONS.get(cat_name, BIN_POSITIONS["unknown"])
 
     # ── Output (7개) ──────────────────────────────
     output = [type_id, tx, ty, short_side_mm, float(angle_out), bx, by]
@@ -494,7 +507,7 @@ def test_full_cycle(gemini, pipeline, roi, bins, T):
     print(f"     분류:  {cat_name} (type_id={type_id})")
     print(f"     좌표:  tx={tx:.2f}, ty={ty:.2f}")
     print(f"     짧은변: {short_side_mm} mm (raw={short_side_px}px, {short_side_src}, mode={bbox_mode})")
-    print(f"     각도:  {angle_out:.2f}° (robot-frame from short-side segment)")
+    print(f"     각도:  {angle_out:.2f}° (robot-frame from short-side segment)") #+ 90.0
     print(f"     쓰레기통: ({bx}, {by})")
     return output
 

@@ -25,6 +25,8 @@ def init_camera():
     # [수정 포인트] 스트림 설정을 바꾸려면 여기만 수정
     config.enable_stream(rs.stream.color, REALSENSE_WIDTH, REALSENSE_HEIGHT,
                          rs.format.bgr8, REALSENSE_FPS)
+    config.enable_stream(rs.stream.depth, REALSENSE_WIDTH, REALSENSE_HEIGHT,
+                         rs.format.z16, REALSENSE_FPS)
     pipeline.start(config)
     # 오토 노출 안정화 (첫 30프레임 버리기)
     for _ in range(30):
@@ -39,20 +41,32 @@ def stop_camera(pipeline):
         pipeline.stop()
 
 
-def capture_snapshot(pipeline) -> np.ndarray:
+def capture_snapshot(pipeline):
     """
-    RGB 사진 1장 캡처.
-    pipeline이 None이면 더미 이미지 반환 (테스트용).
+    RGB + Depth 스냅샷 캡처.
+    pipeline이 None이면 더미 이미지/깊이 반환 (테스트용).
     """
     if pipeline is None:
-        return np.zeros((REALSENSE_HEIGHT, REALSENSE_WIDTH, 3), dtype=np.uint8)
+        color = np.zeros((REALSENSE_HEIGHT, REALSENSE_WIDTH, 3), dtype=np.uint8)
+        depth = np.zeros((REALSENSE_HEIGHT, REALSENSE_WIDTH), dtype=np.float32)
+        return color, depth
 
     frames = pipeline.wait_for_frames()
-    color_frame = frames.get_color_frame()
+    align = rs.align(rs.stream.color)
+    aligned_frames = align.process(frames)
+    color_frame = aligned_frames.get_color_frame()
+    depth_frame = aligned_frames.get_depth_frame()
     # [안전장치] 프레임 획득 실패
-    if not color_frame:
+    if not color_frame or not depth_frame:
         raise RuntimeError("[에러] RGB 프레임을 가져올 수 없습니다.")
-    return np.asanyarray(color_frame.get_data())
+    color = np.asanyarray(color_frame.get_data())
+    depth_raw = np.asanyarray(depth_frame.get_data()).astype(np.float32)
+
+    # depth 단위 변환 (m)
+    depth_sensor = pipeline.get_active_profile().get_device().first_depth_sensor()
+    depth_scale = depth_sensor.get_depth_scale()
+    depth_m = depth_raw * depth_scale
+    return color, depth_m
 
 
 def crop_to_roi(frame: np.ndarray, roi: tuple) -> np.ndarray:

@@ -38,7 +38,7 @@ def main():
     T = load_transform_matrix(filepath=calib_path)
 
     # ── 1회 설정: ROI + Bin ────────────────────────
-    frame = capture_snapshot(pipeline)
+    frame, depth_map = capture_snapshot(pipeline)
     roi = select_roi(frame)
     bins = select_bin_positions(frame)
     if roi is None or bins is None:
@@ -50,7 +50,8 @@ def main():
         cycle += 1
         print(f"\n── Cycle #{cycle} ──")
 
-        roi_img = crop_to_roi(capture_snapshot(pipeline), roi)
+        frame, depth_map = capture_snapshot(pipeline)
+        roi_img = crop_to_roi(frame, roi)
 
         # Step 1: 쓰레기 남아있어?
         if not check_objects_exist(gemini, roi_img):
@@ -66,7 +67,7 @@ def main():
         type_id = classify_object(gemini, bbox_img, label_hint=target.get("label", ""))
 
         # 좌표 변환
-        tx, ty = uv_to_robot_coords(target["center"], roi, T)
+        tx, ty = uv_to_robot_coords(target["center"], roi, depth_map, T)
 
         # 짧은변 (픽셀, ROI 기준) + 대표 선분(norm) 추출
         seg_norm = None
@@ -118,8 +119,8 @@ def main():
             u2 = roi_x + px(sx2, roi_w)
             v2 = roi_y + px(sy2, roi_h)
 
-            tx1, ty1 = pixel_to_robot(u1, v1, T)
-            tx2, ty2 = pixel_to_robot(u2, v2, T)
+            tx1, ty1 = pixel_to_robot(u1, v1, depth_map, T)
+            tx2, ty2 = pixel_to_robot(u2, v2, depth_map, T)
             vx, vy = (tx2 - tx1), (ty2 - ty1)
             short_side_mm = int(round((vx ** 2 + vy ** 2) ** 0.5))
 

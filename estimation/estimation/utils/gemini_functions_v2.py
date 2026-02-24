@@ -218,7 +218,16 @@ Rules for the JSON values:
   Example for a horizontal box: [[100,200],[400,200],[400,400],[100,400]]
   WRONG: [[100,200],[100,200],[400,400],[400,400]] ← only 2 unique points!
 - Even if the object is perfectly rectangular and aligned with the image axes, 
-  always return 4 unique corners in TL, TR, BR, BL order."""
+  always return 4 unique corners in TL, TR, BR, BL order.
+  - The 4 corners must form a proper rectangle, NOT a thin line.
+  The box must have both width AND height (minimum ratio 1:5).
+- "label" must be a descriptive name of the object (e.g., "paper cup", "crushed can").
+  Do NOT return generic words like "short" or "object".
+  - The box must fit the PHYSICAL EDGES of the object only.
+  Do NOT include shadows, reflections, or the surface the object sits on.
+  For a box/carton: fit the corners to where the cardboard edges actually are,
+  not the shadow it casts on the tray.
+  """
 
 _P2_FALLBACK = """Pick ONE object that is easiest to grab. If multiple objects, choose the most isolated with clear edges.
 Return ONLY this JSON:
@@ -228,7 +237,8 @@ Rules:
 - corners order: TL, TR, BR, BL. Each point is [x,y].
 - grasp_pts are midpoints of the two faces the gripper should squeeze.
 - Always return JSON; never say you can't.
-- All 4 corners must be different. Never repeat a point."""
+- All 4 corners must be different. Never repeat a point.
+- Corners must form a proper rectangle, not a thin line. Label must describe the object."""
 
 _P2_TIGHTEN = """Your last box was too large. Redo it.
 Pick ONE object and draw a TIGHT rotated box around ONLY that object.
@@ -240,7 +250,16 @@ Rules:
 - corners order: TL, TR, BR, BL. Each point is [x,y].
 - grasp_pts are midpoints of the two faces the gripper should squeeze.
 - If any other object would be inside the box, it is incorrect.
-- All 4 corners must be different coordinates. Never repeat a point."""
+- All 4 corners must be different coordinates. Never repeat a point.
+- Corners must form a proper rectangle, not a thin line. Label must describe the object.
+- The box must fit the PHYSICAL EDGES of the object only.
+  Do NOT include shadows, reflections, or the surface the object sits on.
+  For a box/carton: fit the corners to where the cardboard edges actually are,
+  not the shadow it casts on the tray.
+  - IMPORTANT: Your previous box was much larger than the actual object.
+  Look at the physical edges of the object carefully.
+  The box area should be close to the object's actual area.
+  If the object takes up ~30% of the image, your box should also be ~30%."""
 
 _P2_AABB = """If rotated corners are hard, return an axis-aligned box instead.
 Return ONLY this JSON:

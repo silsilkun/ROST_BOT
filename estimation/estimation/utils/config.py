@@ -27,14 +27,14 @@ PREFER_GRASP_PTS_ANGLE = False
 # Step2 direct(center+grasp_pts) 우선 사용 여부
 USE_DIRECT_TARGET_PICK = False
 # grasp_pts 선분에 수직한 방향을 그리퍼 yaw로 사용할지 여부
-GRIPPER_ANGLE_USE_GRASP_NORMAL = True
+GRIPPER_ANGLE_USE_GRASP_NORMAL = False #True
 # 로봇 각도 미세 보정값(시계방향 +deg, 반시계방향 -deg)
 # (complementary 보정 사용 시 0부터 시작해 미세조정)
 GRIPPER_ANGLE_OFFSET_DEG_CW = 0.0
 # 로봇 각도 기준이 반대 축이면 180-angle 보정 사용
-USE_COMPLEMENTARY_GRIPPER_ANGLE = True
+USE_COMPLEMENTARY_GRIPPER_ANGLE = False #True
 # 물체 윤곽(contour) 기반 길이/각도 산출 사용
-USE_OBJECT_CONTOUR_GEOMETRY = True
+USE_OBJECT_CONTOUR_GEOMETRY = False #True
 # short_side는 corners 기반 우선 (grasp_pts는 신뢰도 통과 시만 사용)
 PREFER_GRASP_PTS_SHORT_SIDE = False
 # short_side 길이 보정 (현장 실측 기준)
@@ -59,6 +59,17 @@ CATEGORIES = {
 
 # 카테고리 이름 리스트 (Gemini 프롬프트에 전달용)
 CATEGORY_LIST = list(CATEGORIES.keys())
+
+# ── Bin 위치 (로봇 좌표, mm) ──────────────────────────
+BIN_POSITIONS = {
+    "box":     (tx0, ty0),
+    "paper":   (tx1, ty1),
+    "plastic": (tx2, ty2),
+    "vinyl":   (tx3, ty3),
+    "glass":   (tx4, ty4),
+    "can":     (tx5, ty5),
+    "unknown": (tx6, ty6),
+}
 
 # ── RealSense 카메라 ───────────────────────────────────
 # [수정 포인트] 해상도/FPS 바꾸면 여기만 수정

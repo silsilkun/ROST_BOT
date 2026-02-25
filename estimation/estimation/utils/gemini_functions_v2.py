@@ -14,17 +14,25 @@ gemini-robotics-er-1.5-preview 3단계 호출:
 """
 
 import json
+import math
 import re
 import time
 import cv2
 import numpy as np
 from google import genai
 from google.genai import types
-from estimation.utils.config import (
+from config import (
     GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TEMPERATURE,
     GEMINI_THINKING_BUDGET_SPATIAL, GEMINI_THINKING_BUDGET_CLASSIFY,
     CATEGORY_LIST, CATEGORIES,
+    PREFER_GRASP_PTS_ANGLE, GRIPPER_ANGLE_OFFSET_DEG_CW,
+    GRIPPER_ANGLE_USE_GRASP_NORMAL, USE_DIRECT_TARGET_PICK,
 )
+
+# OBB corners 해석 강제 스왑
+FORCE_SWAP_CORNERS = True
+# 로봇 기준 x축이 이미지 세로(y+)와 일치하면 True
+ROBOT_X_AXIS_IS_IMAGE_VERTICAL = True
 
 
 # ── 공통 유틸 ─────────────────────────────────────────
@@ -102,7 +110,7 @@ def _parse_json(text: str):
 
 
 # [수정 포인트] 재시도 횟수/대기시간 바꾸려면 여기만
-_MAX_RETRIES = 1
+_MAX_RETRIES = 2
 _BACKOFF_SEC = 0.5
 
 
@@ -190,83 +198,462 @@ Important:
 - Do NOT merge nearby objects into one box. Each object is separate.
 
 Return ONLY this JSON, nothing else:
-{"box_2d": [ymin, xmin, ymax, xmax], "center": [cy, cx], "angle": <0-180>, "label": "<short description>"}
+{"corners": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]], "grasp_pts": [[xg1,yg1],[xg2,yg2]], "label": "<short description>"}
 
 Rules for the JSON values:
 - All coordinates are normalized 0 to 1000.
-- "center" must be exactly 2 numbers: the y and x of the object's center point. Not 4, just 2.
-- "angle" is the rotation for a gripper: 0 means horizontal, 90 means vertical. Align with the object's shortest axis.
+- "corners" must be 4 points in this exact order: Top-left, Top-right, Bottom-right, Bottom-left.
+- Each point is [x, y] (x first, y second).
+- The coordinate system is THIS IMAGE ONLY (top-left = [0,0], bottom-right = [1000,1000]).
+- Do NOT use any original full-frame coordinates; use the image you see here.
+- "grasp_pts" are the midpoints of the two opposite faces that the parallel gripper should squeeze.
+- These two points must be on the object surface (not outside), and define the true object yaw.
+- The box must be TIGHT: do NOT include background or nearby objects.
+- If your box includes any other object, redo it tighter around the chosen object.
 - "label" is a brief description like "crushed plastic cup" or "tomato can".
-- Every field is required. Always include box_2d, center, angle, and label."""
+- Every field is required. Always include corners, grasp_pts, and label.
+- CRITICAL: All 4 corner points MUST be different coordinates. 
+  Do NOT repeat the same point. If the object is axis-aligned (like a box), 
+  you still need 4 distinct corners:
+  Example for a horizontal box: [[100,200],[400,200],[400,400],[100,400]]
+  WRONG: [[100,200],[100,200],[400,400],[400,400]] ← only 2 unique points!
+- Even if the object is perfectly rectangular and aligned with the image axes, 
+  always return 4 unique corners in TL, TR, BR, BL order.
+  - The 4 corners must form a proper rectangle, NOT a thin line.
+  The box must have both width AND height (minimum ratio 1:5).
+- "label" must be a descriptive name of the object (e.g., "paper cup", "crushed can").
+  Do NOT return generic words like "short" or "object".
+  - The box must fit the PHYSICAL EDGES of the object only.
+  Do NOT include shadows, reflections, or the surface the object sits on.
+  For a box/carton: fit the corners to where the cardboard edges actually are,
+  not the shadow it casts on the tray.
+  """
+
+_P2_FALLBACK = """Pick ONE object that is easiest to grab. If multiple objects, choose the most isolated with clear edges.
+Return ONLY this JSON:
+{"corners": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]], "grasp_pts": [[xg1,yg1],[xg2,yg2]], "label": "<short>"}
+Rules:
+- Coordinates are normalized 0..1000 (top-left = 0,0).
+- corners order: TL, TR, BR, BL. Each point is [x,y].
+- grasp_pts are midpoints of the two faces the gripper should squeeze.
+- Always return JSON; never say you can't.
+- All 4 corners must be different. Never repeat a point.
+- Corners must form a proper rectangle, not a thin line. Label must describe the object."""
+
+_P2_TIGHTEN = """Your last box was too large. Redo it.
+Pick ONE object and draw a TIGHT rotated box around ONLY that object.
+Do NOT include any other object or background.
+Return ONLY this JSON:
+{"corners": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]], "grasp_pts": [[xg1,yg1],[xg2,yg2]], "label": "<short>"}
+Rules:
+- Coordinates are normalized 0..1000 (top-left = 0,0).
+- corners order: TL, TR, BR, BL. Each point is [x,y].
+- grasp_pts are midpoints of the two faces the gripper should squeeze.
+- If any other object would be inside the box, it is incorrect.
+- All 4 corners must be different coordinates. Never repeat a point.
+- Corners must form a proper rectangle, not a thin line. Label must describe the object.
+- The box must fit the PHYSICAL EDGES of the object only.
+  Do NOT include shadows, reflections, or the surface the object sits on.
+  For a box/carton: fit the corners to where the cardboard edges actually are,
+  not the shadow it casts on the tray.
+  - IMPORTANT: Your previous box was much larger than the actual object.
+  Look at the physical edges of the object carefully.
+  The box area should be close to the object's actual area.
+  If the object takes up ~30% of the image, your box should also be ~30%."""
+
+_P2_AABB = """If rotated corners are hard, return an axis-aligned box instead.
+Return ONLY this JSON:
+{"box_2d": [ymin, xmin, ymax, xmax], "label": "<short>"}
+Rules:
+- Coordinates are normalized 0..1000 (top-left = 0,0).
+- Box must be tight and include only the chosen object."""
+
+_P2_DIRECT = """Pick ONE object that is easiest to grab with a parallel gripper.
+Return ONLY this JSON:
+{"center":[cy,cx], "grasp_pts":[[x1,y1],[x2,y2]], "label":"<short>"}
+Rules:
+- Coordinates are normalized 0..1000.
+- center is [y,x].
+- grasp_pts are [x,y] and must be on two opposite faces that the gripper should squeeze.
+- Do not include any extra text."""
 
 
 def select_target_object(client, roi_image: np.ndarray) -> dict | None:
-    """가장 집기 쉬운 객체 1개 → bbox, center(uv), angle. 실패→None."""
-    resp = _call_gemini(client, roi_image, _P2,
-                        temperature=GEMINI_TEMPERATURE,
-                        thinking_budget=GEMINI_THINKING_BUDGET_SPATIAL)
-    try:
+    """가장 집기 쉬운 객체 1개 → OBB corners 기반 bbox/center/angle. 실패→None."""
+    def _parse_step2_direct(resp):
         r = _parse_json(resp.text)
-
-        # ── [안전장치] center 누락 시 box_2d에서 자동 계산 ──
-        if "center" not in r and "box_2d" in r:
-            ymin, xmin, ymax, xmax = r["box_2d"]
-            r["center"] = [(ymin + ymax) // 2, (xmin + xmax) // 2]
-            print(f"[보정] center 누락 → box_2d에서 계산: {r['center']}")
-
-        # ── [안전장치] angle 누락 시 기본값 0 ──
-        if "angle" not in r:
-            r["angle"] = 0
-            print(f"[보정] angle 누락 → 기본값 0°")
-
-        for k in ("box_2d", "center", "angle"):                            # [안전장치] 필수키
+        for k in ("grasp_pts",):
             assert k in r, f"'{k}' 없음"
 
-        # ── [안전장치] center 값 방어 ──────────────────────
-        center = r["center"]
-        if isinstance(center, list) and len(center) == 4:
-            # 4개 → 중심점 계산
-            cy = (center[0] + center[2]) // 2
-            cx = (center[1] + center[3]) // 2
-            center = [cy, cx]
-            print(f"[보정] center 4개→2개 변환: {r['center']} → {center}")
-        elif isinstance(center, list) and len(center) == 2:
-            # 값이 숫자인지 확인 (문자열 "cy" 같은 거 방어)
-            try:
-                center = [int(center[0]), int(center[1])]
-            except (ValueError, TypeError):
-                print(f"[에러] center 값이 숫자가 아님: {center}")
-                return None
-        else:
-            print(f"[에러] center 형식 이상: {center}")
+        grasp_pts = r["grasp_pts"]
+        if not (isinstance(grasp_pts, list) and len(grasp_pts) == 2):
+            print(f"[에러] direct grasp_pts 형식 이상: {grasp_pts}")
             return None
-        # ── center 방어 끝 ─────────────────────────────────
 
-        for v in r["box_2d"] + center:                                     # [안전장치] 좌표범위
-            assert 0 <= v <= 1000, f"범위초과: {v}"
+        safe_g = []
+        for p in grasp_pts:
+            if not (isinstance(p, list) and len(p) == 2):
+                print(f"[에러] direct grasp point 형식 이상: {p}")
+                return None
+            try:
+                x, y = int(p[0]), int(p[1])
+            except (ValueError, TypeError):
+                print(f"[에러] direct grasp point 값이 숫자가 아님: {p}")
+                return None
+            if not (0 <= x <= 1000 and 0 <= y <= 1000):
+                print(f"[에러] direct grasp point 범위초과: {p}")
+                return None
+            safe_g.append([x, y])
 
-        angle_raw = r["angle"]
-        if isinstance(angle_raw, list):
-            # Gemini가 리스트를 줄 때는 첫 숫자값을 사용하고, 없으면 0도로 폴백.
-            nums = []
-            for v in angle_raw:
-                try:
-                    nums.append(float(v))
-                except (TypeError, ValueError):
-                    continue
-            angle = nums[0] if nums else 0.0
-            print(f"[보정] angle 리스트 입력 → {angle_raw} -> {angle}")
+        h, w = roi_image.shape[:2]
+        to_px = lambda p: (int(round(p[0] / 1000 * w)), int(round(p[1] / 1000 * h)))
+        g1_px, g2_px = to_px(safe_g[0]), to_px(safe_g[1])
+        gvx, gvy = g2_px[0] - g1_px[0], g2_px[1] - g1_px[1]
+        glen = (gvx ** 2 + gvy ** 2) ** 0.5
+        if glen < 3.0:
+            print(f"[에러] direct grasp line 너무 짧음: {glen:.1f}px")
+            return None
+
+        # center는 응답값 우선, 없으면 grasp midpoint 사용
+        if isinstance(r.get("center"), list) and len(r["center"]) == 2:
+            try:
+                cy, cx = int(r["center"][0]), int(r["center"][1])
+            except (ValueError, TypeError):
+                cy, cx = None, None
+            if cy is None or cx is None or not (0 <= cy <= 1000 and 0 <= cx <= 1000):
+                cy, cx = None, None
         else:
-            angle = float(angle_raw)
+            cy, cx = None, None
+        if cy is None or cx is None:
+            cx = int(round((safe_g[0][0] + safe_g[1][0]) / 2))
+            cy = int(round((safe_g[0][1] + safe_g[1][1]) / 2))
 
-        out = {"bbox": r["box_2d"], "center": center,
-               "angle": angle, "label": r.get("label", "?")}
-        print(f"[Step 2] '{out['label']}' center={out['center']} "
-              f"angle={out['angle']}°")
+        center = [cy, cx]
+
+        angle_img = (math.degrees(math.atan2(gvy, gvx)) + 180) % 180
+        if GRIPPER_ANGLE_USE_GRASP_NORMAL:
+            angle_img = (angle_img + 90.0) % 180.0
+        if ROBOT_X_AXIS_IS_IMAGE_VERTICAL:
+            angle = (angle_img - 90 + 180) % 180
+        else:
+            angle = angle_img
+        angle = (angle + GRIPPER_ANGLE_OFFSET_DEG_CW) % 180
+
+        short_side_px = int(round(glen))
+        pad = max(12, int(round(short_side_px * 0.6)))
+        xmin = max(0, min(safe_g[0][0], safe_g[1][0]) - pad)
+        xmax = min(1000, max(safe_g[0][0], safe_g[1][0]) + pad)
+        ymin = max(0, min(safe_g[0][1], safe_g[1][1]) - pad)
+        ymax = min(1000, max(safe_g[0][1], safe_g[1][1]) + pad)
+        bbox = [ymin, xmin, ymax, xmax]
+        corners = [[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]]
+
+        out = {
+            "center": center,
+            "grasp_pts": safe_g,
+            "bbox": bbox,
+            "corners": corners,
+            "short_side_px": short_side_px,
+            "angle": float(angle),
+            "bbox_mode": "grasp",
+            "label": r.get("label", "?"),
+            "raw_corners": corners,
+        }
+        print(f"[Step 2][direct] '{out['label']}' center={out['center']} "
+              f"angle={out['angle']:.1f}° short={short_side_px}px")
         return out
-    except (json.JSONDecodeError, KeyError, AssertionError, TypeError, ValueError) as e:
+
+    def _parse_step2(resp):
+        r = _parse_json(resp.text)
+
+        for k in ("corners", "grasp_pts"):                                 # [안전장치] 필수키
+            assert k in r, f"'{k}' 없음"
+
+        corners = r["corners"]
+        if not (isinstance(corners, list) and len(corners) == 4):
+            print(f"[에러] corners 형식 이상: {corners}")
+            return None
+
+        # ── corners 값 방어 ───────────────────────────────
+        safe_corners = []
+        for p in corners:
+            if not (isinstance(p, list) and len(p) == 2):
+                print(f"[에러] corner 형식 이상: {p}")
+                return None
+            try:
+                x, y = int(p[0]), int(p[1])
+            except (ValueError, TypeError):
+                print(f"[에러] corner 값이 숫자가 아님: {p}")
+                return None
+            if not (0 <= x <= 1000 and 0 <= y <= 1000):
+                print(f"[에러] corner 범위초과: {p}")
+                return None
+            safe_corners.append([x, y])
+
+        # ── grasp_pts 값 방어 (corners와 동일 좌표계 유지) ───
+        grasp_pts = r["grasp_pts"]
+        if not (isinstance(grasp_pts, list) and len(grasp_pts) == 2):
+            print(f"[에러] grasp_pts 형식 이상: {grasp_pts}")
+            return None
+        safe_grasp_pts = []
+        for p in grasp_pts:
+            if not (isinstance(p, list) and len(p) == 2):
+                print(f"[에러] grasp point 형식 이상: {p}")
+                return None
+            try:
+                x, y = int(p[0]), int(p[1])
+            except (ValueError, TypeError):
+                print(f"[에러] grasp point 값이 숫자가 아님: {p}")
+                return None
+            if not (0 <= x <= 1000 and 0 <= y <= 1000):
+                print(f"[에러] grasp point 범위초과: {p}")
+                return None
+            safe_grasp_pts.append([x, y])
+
+        # ── 해석 선택 (x,y vs y,x) ───────────────────────
+        h, w = roi_image.shape[:2]
+        def to_px(points, swap=False):
+            if not swap:
+                return [(int(round(x / 1000 * w)), int(round(y / 1000 * h))) for x, y in points]
+            return [(int(round(y / 1000 * w)), int(round(x / 1000 * h))) for x, y in points]
+
+        def order_points(points):
+            cx = sum(p[0] for p in points) / 4.0
+            cy = sum(p[1] for p in points) / 4.0
+            ang = [math.atan2(p[1] - cy, p[0] - cx) for p in points]
+            pts = [p for _, p in sorted(zip(ang, points))]
+            tl_idx = min(range(4), key=lambda i: (pts[i][1], pts[i][0]))
+            ordered = pts[tl_idx:] + pts[:tl_idx]
+            return ordered
+
+        def order_with_indices(points):
+            cx = sum(p[0] for p in points) / 4.0
+            cy = sum(p[1] for p in points) / 4.0
+            ang = [math.atan2(p[1] - cy, p[0] - cx) for p in points]
+            idx_sorted = [i for _, i in sorted(zip(ang, range(4)))]
+            tl_idx = min(range(4), key=lambda i: (points[idx_sorted[i]][1], points[idx_sorted[i]][0]))
+            ordered_idx = idx_sorted[tl_idx:] + idx_sorted[:tl_idx]
+            ordered = [points[i] for i in ordered_idx]
+            return ordered, ordered_idx
+
+        def score(points):
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+            xmin, xmax = min(xs), max(xs)
+            ymin, ymax = min(ys), max(ys)
+            bbox_area = max(1.0, (xmax - xmin) * (ymax - ymin))
+            area = 0.0
+            for i in range(4):
+                x0, y0 = points[i]
+                x1, y1 = points[(i + 1) % 4]
+                area += (x0 * y1 - x1 * y0)
+            area = abs(area) * 0.5
+            ratio = area / bbox_area
+            return (ratio, area)
+
+        px_normal = order_points(to_px(safe_corners, swap=False))
+        px_swap = order_points(to_px(safe_corners, swap=True))
+        s_normal = score(px_normal)
+        s_swap = score(px_swap)
+
+        use_swap = FORCE_SWAP_CORNERS or (s_swap > s_normal)
+        if use_swap:
+            safe_corners = [[y, x] for x, y in safe_corners]  # swap to true [x,y]
+            safe_grasp_pts = [[y, x] for x, y in safe_grasp_pts]
+            print("[보정] corners 해석을 (y,x)→(x,y)로 스왑")
+        else:
+            print(f"[INFO] corners 해석 유지 (score normal={s_normal}, swap={s_swap})")
+        # ── order 보정: centroid 기준 각도 정렬 → TL 시작 ──
+        # safe_corners는 normalized (x,y)로 유지
+        safe_corners, order_idx = order_with_indices(safe_corners)
+        px_ordered = order_points(to_px(safe_corners, swap=False))
+
+        # ── 면적/중복 검사 (너무 작거나 일직선이면 실패) ─────
+        uniq = {(p[0], p[1]) for p in safe_corners}
+        if len(uniq) < 4:
+            print(f"[에러] corner 중복: {safe_corners}")
+            return None
+        area = 0.0
+        for i in range(4):
+            x1, y1 = safe_corners[i]
+            x2, y2 = safe_corners[(i + 1) % 4]
+            area += (x1 * y2 - x2 * y1)
+        if abs(area) < 1.0:
+            print(f"[에러] corner 면적이 너무 작음: {safe_corners}")
+            return None
+
+        # ── 다각형 중심(centroid) 계산 (pixel 기준) ───────
+        # shoelace 기반 centroid (순서가 시계/반시계여도 OK)
+        area2 = 0.0
+        cx_num = 0.0
+        cy_num = 0.0
+        for i in range(4):
+            x0, y0 = px_ordered[i]
+            x1, y1 = px_ordered[(i + 1) % 4]
+            cross = x0 * y1 - x1 * y0
+            area2 += cross
+            cx_num += (x0 + x1) * cross
+            cy_num += (y0 + y1) * cross
+        if abs(area2) < 1e-6:
+            xs = [p[0] for p in px_ordered]
+            ys = [p[1] for p in px_ordered]
+            cx_px = sum(xs) / 4.0
+            cy_px = sum(ys) / 4.0
+        else:
+            cx_px = cx_num / (3 * area2)
+            cy_px = cy_num / (3 * area2)
+
+        cx_norm = int(round(cx_px / w * 1000))
+        cy_norm = int(round(cy_px / h * 1000))
+        center = [cy_norm, cx_norm]
+
+        # ── axis-aligned bbox 계산 (Step3 크롭용) ───────
+        xs = [p[0] for p in safe_corners]
+        ys = [p[1] for p in safe_corners]
+        xmin, xmax = min(xs), max(xs)
+        ymin, ymax = min(ys), max(ys)
+        bbox = [ymin, xmin, ymax, xmax]
+
+        # ── OBB 유효성 체크 (너무 얇은 경우) ──────────────
+        def _dist(a, b):
+            return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+        edges_px = [_dist(px_ordered[i], px_ordered[(i + 1) % 4]) for i in range(4)]
+        min_edge = min(edges_px)
+        if min_edge < 10:
+            print(f"[에러] OBB 너무 얇음 (min_edge={min_edge:.1f}px)")
+            return None
+
+        # ── corners 기반 angle 계산 (물체 자체 각도) ──────
+        # corners: TL, TR, BR, BL (pixel)
+        tl, tr, br, bl = px_ordered
+        v1 = (tr[0] - tl[0], tr[1] - tl[1])  # 상단 변
+        v2 = (br[0] - tr[0], br[1] - tr[1])  # 우측 변
+        len1 = (v1[0] ** 2 + v1[1] ** 2) ** 0.5
+        len2 = (v2[0] ** 2 + v2[1] ** 2) ** 0.5
+        vx, vy = v1 if len1 >= len2 else v2
+        angle_img_corner = (math.degrees(math.atan2(vy, vx)) + 180) % 180
+        # 로봇 기준으로 각도 변환 (이미지 세로가 로봇 x축인 경우)
+        if ROBOT_X_AXIS_IS_IMAGE_VERTICAL:
+            angle_corner = (angle_img_corner - 90 + 180) % 180
+        else:
+            angle_corner = angle_img_corner
+
+        # ── grasp_pts 기반 angle (가능하면 이쪽이 집기 방향과 더 직접적) ──
+        angle = angle_corner
+        angle_source = "corners"
+        if len(safe_grasp_pts) == 2:
+            gpx = to_px(safe_grasp_pts, swap=False)
+            gvx = gpx[1][0] - gpx[0][0]
+            gvy = gpx[1][1] - gpx[0][1]
+            glen = (gvx ** 2 + gvy ** 2) ** 0.5
+            if glen >= 3.0:
+                angle_img_grasp = (math.degrees(math.atan2(gvy, gvx)) + 180) % 180
+                if ROBOT_X_AXIS_IS_IMAGE_VERTICAL:
+                    angle_grasp = (angle_img_grasp - 90 + 180) % 180
+                else:
+                    angle_grasp = angle_img_grasp
+                if PREFER_GRASP_PTS_ANGLE:
+                    angle = angle_grasp
+                    angle_source = "grasp_pts"
+
+        # 현장 미세 보정 (시계방향 +deg)
+        angle = (angle + GRIPPER_ANGLE_OFFSET_DEG_CW) % 180
+
+        out = {"corners": safe_corners, "grasp_pts": safe_grasp_pts,
+               "bbox": bbox, "center": center,
+               "angle": float(angle), "bbox_mode": "obb", "label": r.get("label", "?"),
+               "raw_corners": corners}
+        print(f"[Step 2] '{out['label']}' center={out['center']} "
+              f"angle={out['angle']:.1f}° ({angle_source})")
+        return out
+
+    def _parse_aabb(resp):
+        r = _parse_json(resp.text)
+        for k in ("box_2d",):
+            assert k in r, f"'{k}' 없음"
+        box = r["box_2d"]
+        if not (isinstance(box, list) and len(box) == 4):
+            raise AssertionError(f"box_2d 형식 이상: {box}")
+        ymin, xmin, ymax, xmax = [int(v) for v in box]
+        ymin, ymax = min(ymin, ymax), max(ymin, ymax)
+        xmin, xmax = min(xmin, xmax), max(xmin, xmax)
+        ymin = max(0, min(1000, ymin))
+        ymax = max(0, min(1000, ymax))
+        xmin = max(0, min(1000, xmin))
+        xmax = max(0, min(1000, xmax))
+        corners = [[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]]
+        center = [int(round((ymin + ymax) / 2)), int(round((xmin + xmax) / 2))]
+        out = {"corners": corners, "bbox": [ymin, xmin, ymax, xmax], "center": center,
+               "angle": 0.0, "bbox_mode": "aabb", "label": r.get("label", "?"),
+               "raw_corners": corners}
+        print(f"[Step 2] '{out['label']}' AABB fallback")
+        return out
+    def _area_ratio(corners):
+        xs = [p[0] for p in corners]
+        ys = [p[1] for p in corners]
+        xmin, xmax = min(xs), max(xs)
+        ymin, ymax = min(ys), max(ys)
+        bbox_area = max(1.0, (xmax - xmin) * (ymax - ymin))
+        # polygon area (shoelace)
+        area = 0.0
+        for i in range(4):
+            x0, y0 = corners[i]
+            x1, y1 = corners[(i + 1) % 4]
+            area += x0 * y1 - x1 * y0
+        area = abs(area) * 0.5
+        return area / bbox_area
+    try:
+        # direct 모드 (선택적으로만 사용)
+        if USE_DIRECT_TARGET_PICK:
+            try:
+                resp_d = _call_gemini(client, roi_image, _P2_DIRECT,
+                                      temperature=GEMINI_TEMPERATURE,
+                                      thinking_budget=GEMINI_THINKING_BUDGET_SPATIAL)
+                out_d = _parse_step2_direct(resp_d)
+                if out_d is not None:
+                    return out_d
+            except Exception as e_d:
+                print(f"[Step2] direct 실패 → legacy fallback: {e_d}")
+
+        resp = _call_gemini(client, roi_image, _P2,
+                            temperature=GEMINI_TEMPERATURE,
+                            thinking_budget=GEMINI_THINKING_BUDGET_SPATIAL)
+        out = _parse_step2(resp)
+        if out is None:
+            # fallback to axis-aligned bbox
+            print("[Step2] OBB 실패 → AABB fallback")
+            try:
+                resp_a = _call_gemini(client, roi_image, _P2_AABB,
+                                      temperature=0.1,
+                                      thinking_budget=GEMINI_THINKING_BUDGET_SPATIAL)
+                return _parse_aabb(resp_a)
+            except (json.JSONDecodeError, KeyError, AssertionError) as e:
+                print(f"[에러] Step2 AABB 실패: {e}\n  원본: {resp_a.text}")
+                return None
+        # 크기 과대(ROI 대비)면 타이트닝 프롬프트 재시도
+        ratio = _area_ratio(out["corners"])
+        if ratio < 0.6:
+            print(f"[Step2] 박스 타이트닝 재시도 (area ratio={ratio:.2f})")
+            resp_t = _call_gemini(client, roi_image, _P2_TIGHTEN,
+                                  temperature=0.1,
+                                  thinking_budget=GEMINI_THINKING_BUDGET_SPATIAL)
+            out_t = _parse_step2(resp_t)
+            if out_t is not None:
+                out = out_t
+            else:
+                print("[Step2] 타이트닝 실패 → 기존 박스 유지")
+        return out
+    except (json.JSONDecodeError, KeyError, AssertionError) as e:
         print(f"[에러] Step2: {e}\n  원본: {resp.text}")
-        return None
+        print("[Step2] fallback 프롬프트로 재시도")
+        try:
+            resp2 = _call_gemini(client, roi_image, _P2_FALLBACK,
+                                 temperature=0.2,
+                                 thinking_budget=GEMINI_THINKING_BUDGET_SPATIAL)
+            return _parse_step2(resp2)
+        except (json.JSONDecodeError, KeyError, AssertionError) as e2:
+            print(f"[에러] Step2 fallback 실패: {e2}\n  원본: {resp2.text}")
+            return None
 
 
 # ── Step 3: 카테고리 분류 (증거 기반) ─────────────────

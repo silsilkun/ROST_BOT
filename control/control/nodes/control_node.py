@@ -4,7 +4,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 
-from control.utils.recycle_new import RecycleNew
+from control.recycle_260220 import RecycleNew
 import DR_init
 
 
@@ -36,17 +36,18 @@ class ControlNode(Node):
 
         # input format from estimation:
         # [type_id, tx, ty, short_side_px, angle, bx, by]
+        # recycle_260220 expects:
+        # [type_id, tx, ty, edge_mm, angle, bin_x, bin_y]
         type_id, tx, ty, short_side_px, angle, bx, by = data[:7]
-        z_cm = DEFAULT_PICK_Z_CM
+        edge_mm = float(short_side_px)
         self.get_logger().info(
             f"Received: type={type_id}, tx={tx:.2f}, ty={ty:.2f}, "
-            f"short_side_px={short_side_px:.1f}, angle={angle:.1f}, z={z_cm:.1f}(default)"
+            f"short_side_px={short_side_px:.1f}, angle={angle:.1f}, edge_mm={edge_mm:.1f}"
         )
-        trash_list = [float(type_id), float(tx), float(ty), float(z_cm), float(angle)]
-        bin_list = [[float(bx), float(by)]]
+        trash_list = [float(type_id), float(tx), float(ty), edge_mm, float(angle), float(bx), float(by)]
 
         try:
-            self._robot.run(trash_list, bin_list)
+            self._robot.run(trash_list)
         except Exception as exc:
             response.success = False
             response.message = f"Control run failed: {exc}"

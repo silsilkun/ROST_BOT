@@ -53,6 +53,9 @@ GRIPPER_GAP_TABLE = [
     (740, 0.0),
 ]
 
+# pick 시 최종 집기 그리퍼 명령 고정값
+FIXED_PICK_GRIPPER_VALUE = 740
+
 # ToF serial 세팅
 TOF_PORT = "/dev/ttyUSB0"
 TOF_BAUDRATE = 115200
@@ -600,10 +603,8 @@ class RecycleNew(Node):
             return "no_pick"
 
         # pick 그리퍼 집기
-        final_grip_value, final_target_gap_mm = self._grip_value_from_edge(edge_mm, 0.0)
-        if final_grip_value is None:
-            final_grip_value = int(round(self._clamp(GRAB, GRIPPER_MIN, GRIPPER_MAX)))
-            final_target_gap_mm = None
+        final_grip_value = int(round(self._clamp(FIXED_PICK_GRIPPER_VALUE, GRIPPER_MIN, GRIPPER_MAX)))
+        final_target_gap_mm = None
         final_est_gap_mm = self._interpolate_gap_from_cmd(final_grip_value)
         self.get_logger().info(
             f"final-grip: target_gap={final_target_gap_mm if final_target_gap_mm is not None else 'n/a'}mm, "

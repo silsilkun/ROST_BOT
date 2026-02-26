@@ -9,9 +9,9 @@ from estimation.utils.config import PREFER_GRASP_PTS_SHORT_SIDE
 from estimation.utils.config import GRIPPER_ANGLE_USE_GRASP_NORMAL
 from estimation.utils.config import USE_COMPLEMENTARY_GRIPPER_ANGLE
 from estimation.utils.config import GRIPPER_ANGLE_OFFSET_DEG_CW
+from estimation.utils.config import BIN_POSITIONS
 from estimation.utils.setup_functions import (
     select_roi,
-    select_bin_positions,
     close_setup_window,
 )
 from estimation.utils.camera_capture import (
@@ -57,13 +57,22 @@ class VisionPipelineNode(Node):
         frame, _depth = capture_snapshot(self.cam)
 
         self.roi = select_roi(frame)
-        self.bins = select_bin_positions(frame)
+        self.bins = {
+            name: (float(pos[0]), float(pos[1]))
+            for name, pos in BIN_POSITIONS.items()
+        }
         close_setup_window()
 
-        if self.roi is None or self.bins is None:
+        if self.roi is None:
             self.get_logger().error("초기 설정 실패 → 노드 종료")
             rclpy.shutdown()
             return
+        if "unknown" not in self.bins:
+            self.get_logger().error("BIN_POSITIONS에 'unknown' 키가 필요합니다.")
+            rclpy.shutdown()
+            return
+
+        self.get_logger().info(f"Using fixed BIN_POSITIONS from config: {self.bins}")
 
         self.cycle = 0
         self.request_in_flight = False

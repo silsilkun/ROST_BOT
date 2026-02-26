@@ -113,13 +113,13 @@ tx6, ty6 = _env_float("BIN_UNKNOWN_X"), _env_float("BIN_UNKNOWN_Y")
 
 # ── Bin 위치 (로봇 좌표, mm) ──────────────────────────
 BIN_POSITIONS = {
-    "box":     (tx0, ty0),
-    "paper":   (tx1, ty1),
-    "plastic": (tx2, ty2),
-    "vinyl":   (tx3, ty3),
-    "glass":   (tx4, ty4),
-    "can":     (tx5, ty5),
-    "unknown": (tx6, ty6),
+    "box":     (637.3, 429.6),
+    "paper":   (412.5, 460.5),
+    "plastic": (189.5, 472.6),
+    "vinyl":   (107.7, -423.2),
+    "glass":   (351.3, -419.6),
+    "can":     (644.4, -419.6),
+    "unknown": (838.1, 371.0),
 }
 
 # ── RealSense 카메라 ───────────────────────────────────

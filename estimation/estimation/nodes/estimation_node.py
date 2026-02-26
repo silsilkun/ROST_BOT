@@ -5,7 +5,15 @@ from rost_interfaces.srv import EstimationToControl
 # 기존 import 그대로 유지
 from estimation.utils.config import CATEGORIES
 from estimation.utils.config import GEMINI_COORD_RANGE
-from estimation.utils.setup_functions import (
+from estimation.utils.config import PREFER_GRASP_PTS_SHORT_SIDE
+from estimation.utils.config import GRIPPER_ANGLE_USE_GRASP_NORMAL
+from estimation.utils.config import USE_COMPLEMENTARY_GRIPPER_ANGLE
+from estimation.utils.config import GRIPPER_ANGLE_OFFSET_DEG_CW
+from estimation.utils.setup_functions import (cycle_260220 기준 여부)
+
+  - 파일: ros2_ws/src/control/control/nodes/control_node.py
+  - 흐름:
+      1.
     select_roi,
     select_bin_positions,
     close_setup_window
@@ -24,7 +32,7 @@ from estimation.utils.gemini_functions_v2 import (
     select_target_object,
     classify_object
 )
-from estimation.utils.calibration import gemini_to_robot
+from estimation.utils.calibration import gemini_to_robot, load_transform_matrix, pixel_to_robot
 
 
 class VisionPipelineNode(Node):
@@ -38,8 +46,10 @@ class VisionPipelineNode(Node):
             'estimation_to_control'
         )
 
-        while not self.client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('⏳ Waiting for service...')
+        if self.client.wait_for_service(timeout_sec=0.5):
+            self.get_logger().info("Control service connected.")
+        else:
+            self.get_logger().warn("Control service not available. Running estimation-only mode.")
 
         self.get_logger().info("Vision Pipeline Node Started")
 
@@ -47,7 +57,8 @@ class VisionPipelineNode(Node):
         self.cam = init_camera()
         self.gemini = init_gemini_client()
 
-        frame = capture_snapshot(self.cam)
+        self.calib = load_transform_matrix()
+        frame, _depth = capture_snapshot(self.cam)
 
         self.roi = select_roi(frame)
         self.bins = select_bin_positions(frame)
@@ -61,6 +72,81 @@ class VisionPipelineNode(Node):
         self.cycle = 0
         self.request_in_flight = False
         self.timer = self.create_timer(0.5, self.main_loop)
+
+    def _compute_short_side_mm_and_angle(self, target, roi, roi_img, depth_m):
+        short_side_from_target = target.get("short_side_px")
+        grasp_pts = target.get("grasp_pts")
+        corners = target.get("corners")
+        roi_h, roi_w = roi_img.shape[:2]
+        px = lambda val, size: int(round(val / GEMINI_COORD_RANGE * size))
+
+        seg_norm = None
+        seg_is_grasp = False
+
+        if (isinstance(short_side_from_target, (int, float)) and short_side_from_target > 0 and
+                isinstance(grasp_pts, list) and len(grasp_pts) == 2):
+            short_side_px = int(round(short_side_from_target))
+            seg_norm = (grasp_pts[0], grasp_pts[1])
+            seg_is_grasp = True
+        else:
+            if not (isinstance(corners, list) and len(corners) == 4):
+                return None, None
+            pts = [(px(x, roi_w), px(y, roi_h)) for x, y in corners]
+            def dist(a, b):
+                return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+            edge_info = []
+            for i in range(4):
+                j = (i + 1) % 4
+                d = dist(pts[i], pts[j])
+                edge_info.append((d, i, j))
+            short_side_from_corners, imin, jmin = min(edge_info, key=lambda x: x[0])
+            short_side_px = int(round(short_side_from_corners))
+            seg_norm = (corners[imin], corners[jmin])
+
+            if PREFER_GRASP_PTS_SHORT_SIDE and isinstance(grasp_pts, list) and len(grasp_pts) == 2:
+                (gx1, gy1), (gx2, gy2) = grasp_pts
+                gp1 = (px(gx1, roi_w), px(gy1, roi_h))
+                gp2 = (px(gx2, roi_w), px(gy2, roi_h))
+                grasp_dist = dist(gp1, gp2)
+                ratio = grasp_dist / max(1.0, short_side_from_corners)
+                if grasp_dist >= 3.0 and 0.6 <= ratio <= 1.4:
+                    short_side_px = int(round(grasp_dist))
+                    seg_norm = (grasp_pts[0], grasp_pts[1])
+                    seg_is_grasp = True
+
+        if seg_norm is None:
+            return short_side_px, None
+
+        roi_x, roi_y, roi_w, roi_h = roi
+        (sx1, sy1), (sx2, sy2) = seg_norm
+        u1 = roi_x + px(sx1, roi_w)
+        v1 = roi_y + px(sy1, roi_h)
+        u2 = roi_x + px(sx2, roi_w)
+        v2 = roi_y + px(sy2, roi_h)
+
+        tx1, ty1 = pixel_to_robot(u1, v1, depth_m, self.calib)
+        tx2, ty2 = pixel_to_robot(u2, v2, depth_m, self.calib)
+        vx, vy = (tx2 - tx1), (ty2 - ty1)
+        dist_mm = (vx ** 2 + vy ** 2) ** 0.5
+        if dist_mm <= 0.0:
+            return short_side_px, None
+
+        short_side_mm = int(round(dist_mm))
+        angle_out = (np.degrees(np.arctan2(vy, vx)) + 180.0) % 180.0
+        if seg_is_grasp and GRIPPER_ANGLE_USE_GRASP_NORMAL:
+            angle_out = (angle_out + 90.0) % 180.0
+        if USE_COMPLEMENTARY_GRIPPER_ANGLE:
+            angle_out = (180.0 - angle_out) % 180.0
+        angle_out = (angle_out + GRIPPER_ANGLE_OFFSET_DEG_CW) % 180.0
+
+        # 로봇 집기 각도 기준으로 90도 시프트
+        if 0.0 <= angle_out < 90.0:
+            angle_out += 90.0
+        else:
+            angle_out -= 90.0
+        angle_out = angle_out % 180.0
+
+        return short_side_mm, float(angle_out)
 
 
     def main_loop(self):
@@ -103,27 +189,31 @@ class VisionPipelineNode(Node):
         cat_name = next((k for k, v in CATEGORIES.items() if v == type_id), "unknown")
         bx, by = self.bins.get(cat_name, self.bins["unknown"])
 
-        # main_pipeline 기준: bbox short side(ROI pixel) 계산. 현재는 로깅/디버깅 용도.
-        ymin, xmin, ymax, xmax = target["bbox"]
-        roi_h, roi_w = roi_img.shape[:2]
-        bbox_w = (xmax - xmin) / GEMINI_COORD_RANGE * roi_w
-        bbox_h = (ymax - ymin) / GEMINI_COORD_RANGE * roi_h
-        short_side_px = int(round(min(bbox_w, bbox_h)))
+        # main_pipeline 기준: short_side를 로봇 좌표계(mm)로 변환
+        short_side_mm, angle_out = self._compute_short_side_mm_and_angle(target, self.roi, roi_img, depth_m)
+        if short_side_mm is None:
+            ymin, xmin, ymax, xmax = target["bbox"]
+            roi_h, roi_w = roi_img.shape[:2]
+            bbox_w = (xmax - xmin) / GEMINI_COORD_RANGE * roi_w
+            bbox_h = (ymax - ymin) / GEMINI_COORD_RANGE * roi_h
+            short_side_mm = int(round(min(bbox_w, bbox_h)))
+        if angle_out is None:
+            angle_out = float(target["angle"])
 
         # output format:
-        # [type_id, tx, ty, short_side_px, angle, bx, by]
+        # [type_id, tx, ty, short_side_mm, angle, bx, by]
         output = [
             float(type_id),
             float(tx),
             float(ty),
-            float(short_side_px),
-            float(target["angle"]),
+            float(short_side_mm),
+            float(angle_out),
             float(bx),
             float(by),
         ]
 
         self.get_logger().info(
-            f"📤 Sending output: {output} ({cat_name}, short_side_px={short_side_px})"
+            f"📤 Sending output: {output} ({cat_name}, short_side_mm={short_side_mm})"
         )
 
         # 🔥 Service 요청 생성

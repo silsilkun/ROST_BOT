@@ -146,6 +146,17 @@ class RecycleNew(Node):
                 return int(round(cmd))
         return table[-1][0]
 
+    def _grip_value_from_edge(self, edge_mm: float, extra_gap_mm: float = 0.0):
+        try:
+            edge_val = float(edge_mm)
+        except (TypeError, ValueError):
+            return None, None
+        max_gap = GRIPPER_GAP_TABLE[0][1]
+        target_gap_mm = self._clamp(edge_val + float(extra_gap_mm), 0.0, max_gap)
+        cmd = self._interpolate_cmd_from_gap(target_gap_mm)
+        cmd = int(round(self._clamp(cmd, GRIPPER_MIN, GRIPPER_MAX)))
+        return cmd, target_gap_mm
+
     # ToF serial 통신 연결/해제
     def _connect_tof(self):
         self.tof_serial = serial.Serial(TOF_PORT, TOF_BAUDRATE, timeout=TOF_TIMEOUT_SEC)
@@ -589,10 +600,14 @@ class RecycleNew(Node):
             return "no_pick"
 
         # pick 그리퍼 집기
-        final_grip_value = int(round(self._clamp(GRAB, GRIPPER_MIN, GRIPPER_MAX)))
+        final_grip_value, final_target_gap_mm = self._grip_value_from_edge(edge_mm, 0.0)
+        if final_grip_value is None:
+            final_grip_value = int(round(self._clamp(GRAB, GRIPPER_MIN, GRIPPER_MAX)))
+            final_target_gap_mm = None
         final_est_gap_mm = self._interpolate_gap_from_cmd(final_grip_value)
         self.get_logger().info(
-            f"final-grip: estimated_gap={final_est_gap_mm:.1f}mm, gripper_value={final_grip_value}, "
+            f"final-grip: target_gap={final_target_gap_mm if final_target_gap_mm is not None else 'n/a'}mm, "
+            f"estimated_gap={final_est_gap_mm:.1f}mm, gripper_value={final_grip_value}, "
             f"z={z_after_tof:.1f}, tof={final_tof_mm:.1f}mm"
         )
         self.gripper.move(final_grip_value)

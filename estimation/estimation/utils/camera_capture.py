@@ -5,7 +5,15 @@ RealSense RGB 스냅샷 캡처 + ROI/bbox 크롭
 
 import numpy as np
 import cv2
-from config import REALSENSE_WIDTH, REALSENSE_HEIGHT, REALSENSE_FPS, GEMINI_COORD_RANGE
+try:
+    from estimation.utils import config as cfg
+except Exception:
+    import config as cfg
+
+REALSENSE_WIDTH = cfg.REALSENSE_WIDTH
+REALSENSE_HEIGHT = cfg.REALSENSE_HEIGHT
+REALSENSE_FPS = cfg.REALSENSE_FPS
+GEMINI_COORD_RANGE = cfg.GEMINI_COORD_RANGE
 
 try:
     import pyrealsense2 as rs
@@ -67,6 +75,11 @@ def capture_snapshot(pipeline):
     depth_scale = depth_sensor.get_depth_scale()
     depth_m = depth_raw * depth_scale
     return color, depth_m
+
+
+def capture_snapshot_and_depth(pipeline):
+    """Backward-compatible API."""
+    return capture_snapshot(pipeline)
 
 
 def crop_to_roi(frame: np.ndarray, roi: tuple) -> np.ndarray:

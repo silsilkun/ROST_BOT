@@ -96,6 +96,21 @@ CATEGORIES = {
 # 카테고리 이름 리스트 (Gemini 프롬프트에 전달용)
 CATEGORY_LIST = list(CATEGORIES.keys())
 
+# ── Bin 위치 로딩 (환경변수 → 기본값) ───────────────────
+def _env_float(key: str, default: float = 0.0) -> float:
+    try:
+        return float(os.environ.get(key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+tx0, ty0 = _env_float("BIN_BOX_X"), _env_float("BIN_BOX_Y")
+tx1, ty1 = _env_float("BIN_PAPER_X"), _env_float("BIN_PAPER_Y")
+tx2, ty2 = _env_float("BIN_PLASTIC_X"), _env_float("BIN_PLASTIC_Y")
+tx3, ty3 = _env_float("BIN_VINYL_X"), _env_float("BIN_VINYL_Y")
+tx4, ty4 = _env_float("BIN_GLASS_X"), _env_float("BIN_GLASS_Y")
+tx5, ty5 = _env_float("BIN_CAN_X"), _env_float("BIN_CAN_Y")
+tx6, ty6 = _env_float("BIN_UNKNOWN_X"), _env_float("BIN_UNKNOWN_Y")
+
 # ── Bin 위치 (로봇 좌표, mm) ──────────────────────────
 BIN_POSITIONS = {
     "box":     (tx0, ty0),

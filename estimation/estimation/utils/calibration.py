@@ -15,7 +15,12 @@ uv 좌표(이미지 픽셀) → 로봇 좌표(로봇팔이 실제 이동할 좌�
 import os
 import numpy as np
 import cv2
-from config import GEMINI_COORD_RANGE
+try:
+    from estimation.utils import config as cfg
+except Exception:
+    import config as cfg
+
+GEMINI_COORD_RANGE = cfg.GEMINI_COORD_RANGE
 
 # ── 캘리브레이션/좌표 변환 파라미터 ─────────────────────
 CALIB_NPZ = "camcalib.npz"
@@ -159,3 +164,13 @@ def uv_to_robot_coords(center_normalized: list, roi: tuple,
     tx, ty = pixel_to_robot(pixel_u, pixel_v, depth_map_m, transform_matrix)
     print(f"[좌표] Gemini{center_normalized} → px({pixel_u},{pixel_v}) → robot({tx:.2f},{ty:.2f})")
     return (tx, ty)
+
+
+def gemini_to_robot(center_normalized: list, roi: tuple, depth_map_m: np.ndarray):
+    """
+    Backward-compatible API for estimation_node.
+    Returns (tx, ty, tz). tz is not used in current pipeline, so 0.0 is returned.
+    """
+    T = _load_calib()
+    tx, ty = uv_to_robot_coords(center_normalized, roi, depth_map_m, T)
+    return (tx, ty, 0.0)

@@ -1,22 +1,18 @@
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from rost_interfaces.srv import EstimationToControl
 
-# 기존 import 그대로 유지
 from estimation.utils.config import CATEGORIES
 from estimation.utils.config import GEMINI_COORD_RANGE
 from estimation.utils.config import PREFER_GRASP_PTS_SHORT_SIDE
 from estimation.utils.config import GRIPPER_ANGLE_USE_GRASP_NORMAL
 from estimation.utils.config import USE_COMPLEMENTARY_GRIPPER_ANGLE
 from estimation.utils.config import GRIPPER_ANGLE_OFFSET_DEG_CW
-from estimation.utils.setup_functions import (cycle_260220 기준 여부)
-
-  - 파일: ros2_ws/src/control/control/nodes/control_node.py
-  - 흐름:
-      1.
+from estimation.utils.setup_functions import (
     select_roi,
     select_bin_positions,
-    close_setup_window
+    close_setup_window,
 )
 from estimation.utils.camera_capture import (
     init_camera,
@@ -148,6 +144,49 @@ class VisionPipelineNode(Node):
 
         return short_side_mm, float(angle_out)
 
+    def _short_side_mm_from_bbox(self, bbox, roi, roi_img, depth_m):
+        """
+        bbox: [ymin, xmin, ymax, xmax] in GEMINI_COORD_RANGE.
+        Returns short side length in mm (robot coords) if possible, else None.
+        """
+        if bbox is None or depth_m is None:
+            return None
+
+        ymin, xmin, ymax, xmax = bbox
+        roi_h, roi_w = roi_img.shape[:2]
+        w_px = (xmax - xmin) / GEMINI_COORD_RANGE * roi_w
+        h_px = (ymax - ymin) / GEMINI_COORD_RANGE * roi_h
+
+        if w_px <= 0 or h_px <= 0:
+            return None
+
+        # Center of bbox (roi-local px)
+        cx = (xmin + xmax) / 2.0 / GEMINI_COORD_RANGE * roi_w
+        cy = (ymin + ymax) / 2.0 / GEMINI_COORD_RANGE * roi_h
+
+        if w_px <= h_px:
+            p1 = (cx - w_px / 2.0, cy)
+            p2 = (cx + w_px / 2.0, cy)
+        else:
+            p1 = (cx, cy - h_px / 2.0)
+            p2 = (cx, cy + h_px / 2.0)
+
+        roi_x, roi_y, _rw, _rh = roi
+        u1 = int(round(roi_x + p1[0]))
+        v1 = int(round(roi_y + p1[1]))
+        u2 = int(round(roi_x + p2[0]))
+        v2 = int(round(roi_y + p2[1]))
+
+        tx1, ty1 = pixel_to_robot(u1, v1, depth_m, self.calib)
+        tx2, ty2 = pixel_to_robot(u2, v2, depth_m, self.calib)
+
+        dx, dy = (tx2 - tx1), (ty2 - ty1)
+        dist_mm = (dx ** 2 + dy ** 2) ** 0.5
+        if dist_mm <= 0.0:
+            return None
+
+        return int(round(dist_mm))
+
 
     def main_loop(self):
         # control 응답 전에 재요청이 쌓이면 동작이 겹치므로 차단한다.
@@ -192,16 +231,21 @@ class VisionPipelineNode(Node):
         # main_pipeline 기준: short_side를 로봇 좌표계(mm)로 변환
         short_side_mm, angle_out = self._compute_short_side_mm_and_angle(target, self.roi, roi_img, depth_m)
         if short_side_mm is None:
+            short_side_mm = self._short_side_mm_from_bbox(target.get("bbox"), self.roi, roi_img, depth_m)
+        if short_side_mm is None:
             ymin, xmin, ymax, xmax = target["bbox"]
             roi_h, roi_w = roi_img.shape[:2]
             bbox_w = (xmax - xmin) / GEMINI_COORD_RANGE * roi_w
             bbox_h = (ymax - ymin) / GEMINI_COORD_RANGE * roi_h
             short_side_mm = int(round(min(bbox_w, bbox_h)))
+            self.get_logger().warn(
+                "short_side_mm 변환 실패 → px 길이를 그대로 사용합니다."
+            )
         if angle_out is None:
             angle_out = float(target["angle"])
 
         # output format:
-        # [type_id, tx, ty, short_side_mm, angle, bx, by]
+        # [type_id, tx_mm, ty_mm, short_side_mm, angle_deg, bx_mm, by_mm]
         output = [
             float(type_id),
             float(tx),

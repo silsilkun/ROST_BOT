@@ -34,15 +34,15 @@ class ControlNode(Node):
             response.message = f"Expected 7 floats, got {len(data)}"
             return response
 
-        # input format from estimation:
-        # [type_id, tx, ty, short_side_px, angle, bx, by]
+        # input format from estimation (all in mm except angle in deg):
+        # [type_id, tx_mm, ty_mm, short_side_mm, angle_deg, bin_x_mm, bin_y_mm]
         # recycle_260220 expects:
-        # [type_id, tx, ty, edge_mm, angle, bin_x, bin_y]
-        type_id, tx, ty, short_side_px, angle, bx, by = data[:7]
-        edge_mm = float(short_side_px)
+        # [type_id, tx_mm, ty_mm, edge_mm, angle_deg, bin_x_mm, bin_y_mm]
+        type_id, tx, ty, short_side_mm, angle, bx, by = data[:7]
+        edge_mm = float(short_side_mm)
         self.get_logger().info(
             f"Received: type={type_id}, tx={tx:.2f}, ty={ty:.2f}, "
-            f"short_side_px={short_side_px:.1f}, angle={angle:.1f}, edge_mm={edge_mm:.1f}"
+            f"short_side_mm={short_side_mm:.1f}, angle={angle:.1f}, edge_mm={edge_mm:.1f}"
         )
         trash_list = [float(type_id), float(tx), float(ty), edge_mm, float(angle), float(bx), float(by)]
 

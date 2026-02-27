@@ -24,10 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'recycle = control.recycle:main',
-            'renew = control.recycle_260220:main',
+            'renew = control.utils.recycle_260220:main',
             'control_node = control.nodes.control_node:main',
-            'recycle_new = control.recycle_new:main',
         ],
     },
 )

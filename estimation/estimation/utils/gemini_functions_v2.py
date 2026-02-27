@@ -666,11 +666,11 @@ Think step-by-step and look for AT LEAST 2 of these clues for your chosen catego
   * Visible rim, lip, or pull-tab.
   * Note: Even if covered by a paper/plastic label, the body is metal.
 
-- plastic (rigid plastic items):
-  * Circular/oval rim or threaded neck (for caps).
-  * Concave structure or "inward fold" from a crushed container.
-  * Thick, rigid-looking material with strong, sharp surface highlights.
-  * Note: Even if thick and clear like glass, if it has a threaded neck or is crushed/dented, it is PLASTIC.
+- plastic (rigid plastic items, including CLEAR PLASTIC CUPS):
+  * Circular or oval rim/edge. For clear cups, look for a THIN, rolled plastic rim, which is completely different from a thick, solid glass lip.
+  * Concave structure, inward fold, or clearly DENTED/CRUSHED areas. (CRITICAL: Glass does not dent; it breaks. If a clear object is dented, squished, or warped, it is ALWAYS PLASTIC, never glass).
+  * Thin-walled transparent material that looks lightweight and flexible compared to heavy glass.
+  * NOTE: Even if crushed or crumpled, if you can tell it was originally a rigid container → it's plastic.
 
 - vinyl (soft film/sheet material):
   * Thin, flexible sheet with multiple translucent layers.
@@ -686,10 +686,11 @@ Think step-by-step and look for AT LEAST 2 of these clues for your chosen catego
   * Thin, flexible, matte surface.
   * Printed text or tear patterns.
 
-- glass:
-  * Transparent/semi-transparent rigid material.
-  * Thick walls with smooth, continuous curved surfaces.
-  * Heavy-looking, WITHOUT any sharp inward dents or threaded necks.
+- glass (clear or brown/amber glass items):
+  * Color is either fully TRANSPARENT (clear) OR AMBER/BROWN.
+  * Exhibits sharp, bright specular highlights (intense white light reflections) on its smooth surface.
+  * Thick walls with a continuous curved body (like a bottle or jar), often featuring a thick rim/lip at the opening.
+  * STRICT RULE: It does NOT look squeezable, dented, or crumpled. It maintains a perfectly rigid, heavy, and solid shape.
 
 - unknown:
   * Use ONLY when the outer shell is completely unidentifiable. Do NOT use just because there is dirt or liquid inside.

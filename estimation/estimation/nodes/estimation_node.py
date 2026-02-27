@@ -141,19 +141,13 @@ class VisionPipelineNode(Node):
             return short_side_px, None
 
         short_side_mm = int(round(dist_mm))
-        angle_out = (np.degrees(np.arctan2(vy, vx)) + 180.0) % 180.0
+        # Use test_pipeline angle logic: abs-based short-side angle
+        angle_out = np.degrees(np.arctan2(abs(vy), abs(vx)))
         if seg_is_grasp and GRIPPER_ANGLE_USE_GRASP_NORMAL:
             angle_out = (angle_out + 90.0) % 180.0
         if USE_COMPLEMENTARY_GRIPPER_ANGLE:
             angle_out = (180.0 - angle_out) % 180.0
         angle_out = (angle_out + GRIPPER_ANGLE_OFFSET_DEG_CW) % 180.0
-
-        # 로봇 집기 각도 기준으로 90도 시프트
-        if 0.0 <= angle_out < 90.0:
-            angle_out += 90.0
-        else:
-            angle_out -= 90.0
-        angle_out = angle_out % 180.0
 
         return short_side_mm, float(angle_out)
 

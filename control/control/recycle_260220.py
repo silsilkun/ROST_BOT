@@ -16,7 +16,7 @@ ACC = 30
 
 # 테스트용 데이터
 def test_data():
-    trash = [2.0, 500, 100, 80, 50, 500, 600]
+    trash = [2.0, 500, 100, 50, 90, 838.1, 371.0]
     return trash
 
 # wait 오프셋
@@ -527,10 +527,14 @@ class RecycleNew(Node):
         PRE_GRIP_WAIT = 2.0 + wait_offset
 
         # HOME 위치 초기화
-        home = posj(0, -20, 100, 0, 100, 90)
+        home = posj(0, -20, 110, 0, 90, 90)
         movej(home, VEL, ACC)
         self.gripper.move(RELEASE)
         wait(RELEASE_WAIT)
+
+        if x1 == 0.0 and y1 == 0.0:
+            self.get_logger().warn("받아온 (x,y) 좌표가 (0,0) 입니다. 스킵합니다.")
+            return "no_pick"
 
         # pick 지점 상단으로 이동 (movej)
         cur_posx, _ = self.get_posx(get_current_posx, wait)
@@ -659,7 +663,7 @@ class RecycleNew(Node):
         wait(RELEASE_WAIT)
 
         # HOME 위치로 이동
-        home = posj(0, -20, 100, 0, 100, 90)
+        home = posj(0, -20, 110, 0, 90, 90)
         movej(home, VEL, ACC)
         return "done"
 

@@ -29,7 +29,7 @@ wait_offset = max(0.0, VEL - BASE_VEL) * WAIT_SEC_PER_VEL
 
 # 로봇팔 오프셋
 PICK_APPROACH_Z_FIXED_MM = 380.0
-LIFT = 150
+LIFT = 230
 
 # 그리퍼 오프셋
 GRAB = 500

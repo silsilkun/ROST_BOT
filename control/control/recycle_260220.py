@@ -559,6 +559,7 @@ class RecycleNew(Node):
         import DSR_ROBOT2 as dsr
 
         movej = dsr.movej
+        movel = dsr.movel
         speedl = dsr.speedl
         ikin = dsr.ikin
         posj = dsr.posj
@@ -664,24 +665,16 @@ class RecycleNew(Node):
 
         # pick 이후 상단 이동 (pick_up)
         cur_after_pick_posx, _ = self.get_posx(get_current_posx, wait)
-        if cur_after_pick_posx is not None and len(cur_after_pick_posx) >= 3:
+        if cur_after_pick_posx is not None and len(cur_after_pick_posx) >= 6:
+            lift_start_x = float(cur_after_pick_posx[0])
+            lift_start_y = float(cur_after_pick_posx[1])
             lift_start_z = float(cur_after_pick_posx[2])
         else:
+            lift_start_x = float(x1)
+            lift_start_y = float(y1)
             lift_start_z = float(z_after_tof)
-        pick_up = posx(x1, y1, lift_start_z + LIFT, rx, ry, rz)
-        cur_posj = get_current_posj()
-        best = self._select_ik_solution_with_joint_delta_limit(
-            ikin, pick_up, cur_posj, DR_BASE, max_joint_delta_deg=90.0
-        )
-        if best is None:
-            self.get_logger().error(
-                "No valid IK solution for pick up (joint limits + J2 in [-30,90] + others delta < 90 deg)"
-            )
-            return
-        _, sol, q_target_list = best
-        self.get_logger().info(f"Selected IK sol={sol} for pick up")
-        q_target_list[5] = 0.0
-        movej(q_target_list, v=VEL, a=ACC, r=200)
+        pick_up = posx(lift_start_x, lift_start_y, lift_start_z + LIFT, rx, ry, rz)
+        movel(pick_up, v=VEL, a=ACC)
 
         # 기준점에서 place 방향으로 접근 포즈 계산
         cur_posj = get_current_posj()

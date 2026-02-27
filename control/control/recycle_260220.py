@@ -16,7 +16,7 @@ ACC = 30
 
 # 테스트용 데이터
 def test_data():
-    trash = [2.0, 500, 100, 50, 90, 838.1, 371.0]
+    trash = [2.0, 330, -150, 60, 90, 670, 20]
     return trash
 
 # wait 오프셋
@@ -29,7 +29,7 @@ wait_offset = max(0.0, VEL - BASE_VEL) * WAIT_SEC_PER_VEL
 
 # 로봇팔 오프셋
 PICK_APPROACH_Z_FIXED_MM = 380.0
-LIFT = 280
+LIFT = 230
 
 # 그리퍼 오프셋
 GRAB = 500
@@ -94,6 +94,8 @@ JOINT_LIMITS_DEG = [
     (-135.0, 135.0),  # J5
     (-360.0, 360.0),  # J6
 ]
+J2_PICK_SELECT_MIN_DEG = -30.0
+J2_PICK_SELECT_MAX_DEG = 90.0
 
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
@@ -498,6 +500,60 @@ class RecycleNew(Node):
                 best_j4_delta = j4_delta
         return best
 
+    # pick_upper / pick_up 전용: 각 관절 변화량이 max_joint_delta_deg 미만인 해만 선택
+    def _select_ik_solution_with_joint_delta_limit(
+        self,
+        ikin,
+        target_pose,
+        cur_posj,
+        DR_BASE,
+        max_joint_delta_deg=90.0,
+    ):
+        def _to_list(q):
+            return q.tolist() if hasattr(q, "tolist") else list(q)
+
+        def _within_limits(q_list):
+            for idx, val in enumerate(q_list):
+                mn, mx = JOINT_LIMITS_DEG[idx]
+                if val < mn or val > mx:
+                    return False
+            return True
+
+        def _sum_delta(q_list, cur_list):
+            return sum(abs(q_list[i] - cur_list[i]) for i in range(6))
+
+        cur_list = _to_list(cur_posj)
+        best = None
+        best_j4_delta = None
+
+        for sol in range(8):
+            try:
+                q_target = ikin(target_pose, sol, DR_BASE)
+            except TypeError:
+                q_target = ikin(target_pose, sol)
+            if q_target is None:
+                continue
+
+            q_target_list = _to_list(q_target)
+            if not _within_limits(q_target_list):
+                continue
+
+            deltas = [abs(q_target_list[i] - cur_list[i]) for i in range(6)]
+            # J2는 변화량 제한 대신 절대 각도 범위로 별도 제한한다.
+            j2_val = q_target_list[1]
+            if not (J2_PICK_SELECT_MIN_DEG <= j2_val <= J2_PICK_SELECT_MAX_DEG):
+                continue
+            if any(deltas[i] >= max_joint_delta_deg for i in range(6) if i != 1):
+                continue
+
+            cost = _sum_delta(q_target_list, cur_list)
+            j4_delta = deltas[3]
+            if best is None or cost < best[0] or (cost == best[0] and j4_delta < best_j4_delta):
+                best = (cost, sol, q_target_list)
+                best_j4_delta = j4_delta
+
+        return best
+
     # 동작 시퀀스
     def run_job(self, pick_xy, edge_mm, grip_angle, place_xyz):
         import DSR_ROBOT2 as dsr
@@ -544,9 +600,13 @@ class RecycleNew(Node):
         rx_home, ry_home, rz_home = cur_posx[3], cur_posx[4], cur_posx[5]
         pick_upper = posx(x1, y1, PICK_APPROACH_Z_FIXED_MM, rx_home, ry_home, rz_home)
         cur_posj = get_current_posj()
-        best = self._select_ik_solution(ikin, pick_upper, cur_posj, DR_BASE)
+        best = self._select_ik_solution_with_joint_delta_limit(
+            ikin, pick_upper, cur_posj, DR_BASE, max_joint_delta_deg=90.0
+        )
         if best is None:
-            self.get_logger().error("No valid IK solution within joint limits for pick upper")
+            self.get_logger().error(
+                "No valid IK solution for pick upper (joint limits + J2 in [-30,90] + others delta < 90 deg)"
+            )
             return
         _, sol, q_target_list = best
         self.get_logger().info(f"Selected IK sol={sol} for pick upper")
@@ -587,7 +647,7 @@ class RecycleNew(Node):
         self._stabilize_after_stop(wait, mwait_fn=mwait_fn, check_motion_fn=check_motion_fn)
         if stop_reason != "tof_hit":
             self.get_logger().warn(
-                f"Skip pick/place due to guard stop: reason={stop_reason}, z={z_after_tof:.1f}, tof={final_tof_mm}"
+                f"Skip pick/pick_up due to guard stop: reason={stop_reason}, z={z_after_tof:.1f}, tof={final_tof_mm}"
             )
             movej(home, VEL, ACC)
             return "no_pick"
@@ -602,7 +662,7 @@ class RecycleNew(Node):
         self.gripper.move(final_grip_value)
         wait(GRAB_WAIT)
 
-        # pick 이후 상단 이동
+        # pick 이후 상단 이동 (pick_up)
         cur_after_pick_posx, _ = self.get_posx(get_current_posx, wait)
         if cur_after_pick_posx is not None and len(cur_after_pick_posx) >= 3:
             lift_start_z = float(cur_after_pick_posx[2])
@@ -610,18 +670,18 @@ class RecycleNew(Node):
             lift_start_z = float(z_after_tof)
         pick_up = posx(x1, y1, lift_start_z + LIFT, rx, ry, rz)
         cur_posj = get_current_posj()
-        best = self._select_ik_solution(ikin, pick_up, cur_posj, DR_BASE)
+        best = self._select_ik_solution_with_joint_delta_limit(
+            ikin, pick_up, cur_posj, DR_BASE, max_joint_delta_deg=90.0
+        )
         if best is None:
-            self.get_logger().error("No valid IK solution within joint limits for pick up")
+            self.get_logger().error(
+                "No valid IK solution for pick up (joint limits + J2 in [-30,90] + others delta < 90 deg)"
+            )
             return
         _, sol, q_target_list = best
         self.get_logger().info(f"Selected IK sol={sol} for pick up")
         q_target_list[5] = 0.0
-        movej(q_target_list, v=VEL, a=ACC,r=200)
-
-        # pick 이후 HOME 위치로 이동
-        home = posj(0, -20, 100, 0, 100, 90)
-        movej(home, VEL, ACC,r=50)
+        movej(q_target_list, v=VEL, a=ACC, r=200)
 
         # 기준점에서 place 방향으로 접근 포즈 계산
         cur_posj = get_current_posj()

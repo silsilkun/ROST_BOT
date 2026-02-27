@@ -368,7 +368,7 @@ class RecycleNew(Node):
         item_id = self.type_id(trash[0])
         pick_xy = (float(trash[1]), float(trash[2]))
         edge_mm = float(trash[3])
-        angle = float(trash[4])
+        angle = float(trash[4]+90)
 
         bin_x, bin_y = float(trash[5]), float(trash[6])
         place_xyz = (bin_x, bin_y, 250.0)
@@ -637,7 +637,7 @@ class RecycleNew(Node):
 
         # 기준점에서 place 방향으로 접근 포즈 계산
         cur_posj = get_current_posj()
-        ref_xyz = [370.0, 0.0, 500.0]
+        ref_xyz = [245.4, 0.0, 382.5]
         a, b, c = self._look_at_zyz(ref_xyz, [x2, y2, z2])
         target_pose = posx(x2, y2, z2, a, b, c)
         j4_sign = "positive" if y2 >= 0.0 else "negative"

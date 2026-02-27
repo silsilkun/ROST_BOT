@@ -93,7 +93,7 @@ def gemini_to_pixel(center_normalized: list, roi: tuple) -> tuple:
 
 
 def pixel_to_robot(pixel_u: int, pixel_v: int, depth_map_m: np.ndarray,
-                   transform_matrix) -> tuple:
+                   transform_matrix):
     """
     이미지 픽셀 좌표(u,v) + depth → 로봇 좌표(tx,ty).
     - camcalib(dict): K + D + T_cam_to_work 사용, depth 기반 3D 변환
@@ -105,7 +105,7 @@ def pixel_to_robot(pixel_u: int, pixel_v: int, depth_map_m: np.ndarray,
 
         if depth_map_m is None:
             print("[경고] depth_map 없음 → 좌표 계산 실패")
-            return (0.0, 0.0)
+            return None
 
         H, W = depth_map_m.shape[:2]
         u = int(np.clip(pixel_u, 0, W - 1))
@@ -123,7 +123,7 @@ def pixel_to_robot(pixel_u: int, pixel_v: int, depth_map_m: np.ndarray,
 
         if not depths:
             print("[경고] depth 샘플 없음 → 좌표 계산 실패")
-            return (0.0, 0.0)
+            return None
 
         Z_cm = float(np.median(depths)) * M_TO_CM
 
@@ -151,7 +151,7 @@ def pixel_to_robot(pixel_u: int, pixel_v: int, depth_map_m: np.ndarray,
         return (tx_mm, ty_mm)
 
     print("[경고] 지원하지 않는 변환 행렬 형식")
-    return (0.0, 0.0)
+    return None
 
 
 def uv_to_robot_coords(center_normalized: list, roi: tuple,
@@ -161,7 +161,10 @@ def uv_to_robot_coords(center_normalized: list, roi: tuple,
     gemini_to_pixel + pixel_to_robot 순차 호출.
     """
     pixel_u, pixel_v = gemini_to_pixel(center_normalized, roi)
-    tx, ty = pixel_to_robot(pixel_u, pixel_v, depth_map_m, transform_matrix)
+    result = pixel_to_robot(pixel_u, pixel_v, depth_map_m, transform_matrix)
+    if result is None:
+        return None
+    tx, ty = result
     print(f"[좌표] Gemini{center_normalized} → px({pixel_u},{pixel_v}) → robot({tx:.2f},{ty:.2f})")
     return (tx, ty)
 
@@ -172,5 +175,8 @@ def gemini_to_robot(center_normalized: list, roi: tuple, depth_map_m: np.ndarray
     Returns (tx, ty, tz). tz is not used in current pipeline, so 0.0 is returned.
     """
     T = _load_calib()
-    tx, ty = uv_to_robot_coords(center_normalized, roi, depth_map_m, T)
+    result = uv_to_robot_coords(center_normalized, roi, depth_map_m, T)
+    if result is None:
+        return None
+    tx, ty = result
     return (tx, ty, 0.0)

@@ -198,46 +198,29 @@ def check_objects_exist(client, roi_image: np.ndarray) -> bool:
 
 # ── Step 2: 타겟 선정 + 위치/각도 ─────────────────────
 
-# [수정 포인트] 프롬프트 바꾸려면 여기만
-_P2 = """Look at this waste collection area. Pick the ONE object that is easiest to grab with a parallel gripper — meaning it's the most isolated and has clear edges.
+# ── Step 2: Bounding Box & Grasp Point (공간 추론 유도형) ─────────────────
+_P2 = """You are an expert robotic grasping assistant. Let's look at this waste collection area together.
+Our goal is to find the SINGLE easiest object to grab with a parallel gripper. The best candidate is isolated and has clear, visible edges.
 
-Important:
-- If an object has a wrapper, label, or packaging around it, that's still one single item. Draw the box around just the main object, not the packaging separately.
-- If objects are stacked or overlapping, pick only the top one and fit the box tightly around it alone.
-- Do NOT merge nearby objects into one box. Each object is separate.
+Please walk through this step-by-step:
+1. Scan the image and pick the most isolated object. (If it has packaging, treat the whole thing as one item).
+2. Imagine drawing a tight bounding box around its physical edges.
+3. Find the two opposite midpoints on the object where the gripper should squeeze.
 
-Return ONLY this JSON, nothing else:
-{"corners": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]], "grasp_pts": [[xg1,yg1],[xg2,yg2]], "label": "<short description>"}
+Output your thought process and the final coordinates strictly in this JSON format:
+{
+  "reasoning": "<Explain briefly which object you chose and why it is the easiest to grab>",
+  "corners": [[x1,y1], [x2,y2], [x3,y3], [x4,y4]],
+  "grasp_pts": [[xg1,yg1], [xg2,yg2]],
+  "label": "<short description>"
+}
 
-Rules for the JSON values:
-- All coordinates are normalized 0 to 1000.
-- "corners" must be 4 points in this exact order: Top-left, Top-right, Bottom-right, Bottom-left.
-- Each point is [x, y] (x first, y second).
-- The coordinate system is THIS IMAGE ONLY (top-left = [0,0], bottom-right = [1000,1000]).
-- Do NOT use any original full-frame coordinates; use the image you see here.
-- "grasp_pts" are the midpoints of the two opposite faces that the parallel gripper should squeeze.
-- These two points must be on the object surface (not outside), and define the true object yaw.
-- The box must be TIGHT: do NOT include background or nearby objects.
-- If your box includes any other object, redo it tighter around the chosen object.
-- "label" is a brief description like "crushed plastic cup" or "tomato can".
-- Every field is required. Always include corners, grasp_pts, and label.
-- CRITICAL: All 4 corner points MUST be different coordinates. 
-  Do NOT repeat the same point. If the object is axis-aligned (like a box), 
-  you still need 4 distinct corners:
-  Example for a horizontal box: [[100,200],[400,200],[400,400],[100,400]]
-  WRONG: [[100,200],[100,200],[400,400],[400,400]] ← only 2 unique points!
-- Even if the object is perfectly rectangular and aligned with the image axes, 
-  always return 4 unique corners in TL, TR, BR, BL order.
-  - The 4 corners must form a proper rectangle, NOT a thin line.
-  The box must have both width AND height (minimum ratio 1:5).
-- "label" must be a descriptive name of the object (e.g., "paper cup", "crushed can").
-  Do NOT return generic words like "short" or "object".
-  - The box must fit the PHYSICAL EDGES of the object only.
-  Do NOT include shadows, reflections, or the surface the object sits on.
-  For a box/carton: fit the corners to where the cardboard edges actually are,
-  not the shadow it casts on the tray.
-  """
+Remember the coordinate rules:
+- Use normalized coordinates 0 to 1000 (top-left=[0,0], bottom-right=[1000,1000]) for THIS image.
+- "corners" must be 4 distinct points in exact order: Top-Left, Top-Right, Bottom-Right, Bottom-Left.
+"""
 
+# [유지됨] 1차 실패 시 가동되는 폴백 프롬프트들 (절대 수정/삭제 안 함)
 _P2_FALLBACK = """Pick ONE object that is easiest to grab. If multiple objects, choose the most isolated with clear edges.
 Return ONLY this JSON:
 {"corners": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]], "grasp_pts": [[xg1,yg1],[xg2,yg2]], "label": "<short>"}
@@ -262,13 +245,13 @@ Rules:
 - All 4 corners must be different coordinates. Never repeat a point.
 - Corners must form a proper rectangle, not a thin line. Label must describe the object.
 - The box must fit the PHYSICAL EDGES of the object only.
-  Do NOT include shadows, reflections, or the surface the object sits on.
-  For a box/carton: fit the corners to where the cardboard edges actually are,
-  not the shadow it casts on the tray.
-  - IMPORTANT: Your previous box was much larger than the actual object.
-  Look at the physical edges of the object carefully.
-  The box area should be close to the object's actual area.
-  If the object takes up ~30% of the image, your box should also be ~30%."""
+  Do NOT include shadows, reflections, or the surface the object sits on.
+  For a box/carton: fit the corners to where the cardboard edges actually are,
+  not the shadow it casts on the tray.
+  - IMPORTANT: Your previous box was much larger than the actual object.
+  Look at the physical edges of the object carefully.
+  The box area should be close to the object's actual area.
+  If the object takes up ~30% of the image, your box should also be ~30%."""
 
 _P2_AABB = """If rotated corners are hard, return an axis-aligned box instead.
 Return ONLY this JSON:
@@ -670,66 +653,56 @@ def select_target_object(client, roi_image: np.ndarray) -> dict | None:
 # Look at the overall shape, size, and structure — not just the surface texture.
 # Then, classify based on what the object actually IS, not what its surface looks like.
 
-# [수정 포인트] 분류 프롬프트 바꾸려면 여기만
-_P3 = f"""Look at this single waste object very carefully. Your job is to classify it into ONE of these categories: {', '.join(CATEGORY_LIST)}
-Before classifying, imagine picking this object up with your gripper.
-- Would it feel rigid and hold its shape? → plastic or can or glass
-- Would it crumple flat with almost no resistance, like a thin sheet? → vinyl
-- Would it feel like paper? → paper or box
+_P3 = f"""Let's examine this cropped waste object to determine its material category: {', '.join(CATEGORY_LIST)}.
 
-A crushed plastic cup is still rigid plastic — it resists being flattened 
-and springs back partially. Vinyl film just collapses flat like a deflated balloon.
+Before classifying, carefully observe the object's physical properties.
+CRITICAL RULE: If you see ANY liquid, food residue, or dirt inside or on the object, IGNORE IT COMPLETELY. Classify based ONLY on the outer shell's material.
 
-For example: a tin can covered in a colorful paper label is still a "can" because the object itself is a metal container. Don't be fooled by surface wrapping.
+Think step-by-step and look for AT LEAST 2 of these clues for your chosen category:
 
-But here's the important rule: you must PROVE your classification with visual evidence. If you can't find enough evidence, classify it as "unknown". It's much better to say "unknown" than to guess wrong.
+- can (metal containers):
+  * Metallic sheen or reflective surface.
+  * Cylindrical body shape (even if dented).
+  * Visible rim, lip, or pull-tab.
+  * Note: Even if covered by a paper/plastic label, the body is metal.
 
-For each category, you need to see AT LEAST 2 of these clues:
+- plastic (rigid plastic items):
+  * Circular/oval rim or threaded neck (for caps).
+  * Concave structure or "inward fold" from a crushed container.
+  * Thick, rigid-looking material with strong, sharp surface highlights.
+  * Note: Even if thick and clear like glass, if it has a threaded neck or is crushed/dented, it is PLASTIC.
 
-can (metal containers):
-- Metallic sheen or reflective surface typical of aluminum/tin
-- Cylindrical body shape (even if dented or crushed)
-- Visible rim or lip at the top/bottom edge
-- Pull-tab or opening mechanism
-- NOTE: Even if a can has a paper label or plastic wrap around it, the BODY is metal → it's a can
+- vinyl (soft film/sheet material):
+  * Thin, flexible sheet with multiple translucent layers.
+  * Handle loops or bag opening structure.
+  * Fine, complex wrinkles.
+  * Note: Must have crinkles or handles.
 
-plastic (rigid plastic items):
-- Circular or oval rim/edge (even partial arc) suggesting a cup or bottle
-- Concave structure or "inward fold" from a crushed container
-- Thick, rigid-looking material with strong surface highlights (small bright reflections)
-- Visible thread pattern from a bottle cap area
-- NOTE: Even if crushed or crumpled, if you can tell it was originally a rigid container → it's plastic
+- box (cardboard):
+  * Flat, rigid panel structure with fold lines or creases.
+  * Brown kraft or corrugated texture.
 
-vinyl (soft film/sheet material):
-- Thin, flexible sheet with multiple translucent layers overlapping
-- Handle loops or bag opening structure
-- Very fine, complex, fractal-like wrinkles with no clear directional pattern
-- Material appears extremely thin and crinkly
-- STRICT RULE: If you do NOT see handles, bag opening, or thin layered sheets, do NOT classify as vinyl
+- paper (thin paper):
+  * Thin, flexible, matte surface.
+  * Printed text or tear patterns.
 
-box (cardboard):
-- Flat, rigid panel structure with fold lines or creases
-- Brown kraft or corrugated texture
-- Box-like edges or flaps
+- glass:
+  * Transparent/semi-transparent rigid material.
+  * Thick walls with smooth, continuous curved surfaces.
+  * Heavy-looking, WITHOUT any sharp inward dents or threaded necks.
 
-paper (thin paper):
-- Thin, flexible, matte surface (not shiny like plastic)
-- Printed text or newspaper-like texture
-- Paper fiber visible or tear patterns
+- unknown:
+  * Use ONLY when the outer shell is completely unidentifiable. Do NOT use just because there is dirt or liquid inside.
 
-glass:
-- Transparent or semi-transparent rigid material
-- Thick walls with visible glass edges
-- Heavy-looking, smooth curved surface
-
-unknown:
-- Use this when evidence is unclear, mixed, or insufficient
-- When the object could be two categories and you can't decide → unknown
-- IMPORTANT: If you see ANY liquid, food residue, or leftover contents inside or on the object → ALWAYS classify as unknown, regardless of how clear the object type is
-
-Now classify the object and respond with ONLY this JSON:
-{{"category": "<category>", "confidence": "high/medium/low", "evidence": ["<clue 1>", "<clue 2>"], "counter_evidence": "<why it's not the next most likely category>"}} """
-
+Provide your step-by-step analysis in this JSON format:
+{{
+  "reasoning": "<Step-by-step deduction. Explicitly state what evidence you found and if you are ignoring inner contents>",
+  "category": "<category>",
+  "confidence": "high/medium/low",
+  "evidence": ["<clue1>", "<clue2>"],
+  "counter_evidence": "<why it is not the other similar material>"
+}}
+"""
 # [수정 포인트] confidence/evidence 기반 자동 unknown 처리 임계값
 _MIN_EVIDENCE_COUNT = 2       # evidence가 이 수 미만이면 → unknown
 _AUTO_UNKNOWN_CONFIDENCE = "low"  # 이 confidence면 → unknown

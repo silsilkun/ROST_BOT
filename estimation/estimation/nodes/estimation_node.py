@@ -129,8 +129,12 @@ class VisionPipelineNode(Node):
         u2 = roi_x + px(sx2, roi_w)
         v2 = roi_y + px(sy2, roi_h)
 
-        tx1, ty1 = pixel_to_robot(u1, v1, depth_m, self.calib)
-        tx2, ty2 = pixel_to_robot(u2, v2, depth_m, self.calib)
+        p1 = pixel_to_robot(u1, v1, depth_m, self.calib)
+        p2 = pixel_to_robot(u2, v2, depth_m, self.calib)
+        if p1 is None or p2 is None:
+            return short_side_px, None
+        tx1, ty1 = p1
+        tx2, ty2 = p2
         vx, vy = (tx2 - tx1), (ty2 - ty1)
         dist_mm = (vx ** 2 + vy ** 2) ** 0.5
         if dist_mm <= 0.0:
@@ -186,8 +190,12 @@ class VisionPipelineNode(Node):
         u2 = int(round(roi_x + p2[0]))
         v2 = int(round(roi_y + p2[1]))
 
-        tx1, ty1 = pixel_to_robot(u1, v1, depth_m, self.calib)
-        tx2, ty2 = pixel_to_robot(u2, v2, depth_m, self.calib)
+        p1 = pixel_to_robot(u1, v1, depth_m, self.calib)
+        p2 = pixel_to_robot(u2, v2, depth_m, self.calib)
+        if p1 is None or p2 is None:
+            return None
+        tx1, ty1 = p1
+        tx2, ty2 = p2
 
         dx, dy = (tx2 - tx1), (ty2 - ty1)
         dist_mm = (dx ** 2 + dy ** 2) ** 0.5
@@ -226,10 +234,7 @@ class VisionPipelineNode(Node):
         )
 
         if coords is None:
-            self.get_logger().error("❌ 좌표 변환 실패: 안전을 위해 노드를 종료합니다.")
-            self.timer.cancel()
-            if rclpy.ok():
-                rclpy.shutdown()
+            self.get_logger().warn("⚠️ depth 기반 좌표 변환 실패: 이번 사이클은 스킵하고 재시도합니다.")
             return
 
         tx, ty, _tz = coords

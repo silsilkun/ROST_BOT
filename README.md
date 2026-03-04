@@ -1,17 +1,17 @@
 # ROST_BOT
 본 프로젝트는 ROS2 Humble이 설치되어 있는 환경을 기준으로 동작합니다.
 
-🔄 시스템 워크플로우 (System Workflow)
+## 🔄 시스템 워크플로우 (System Workflow)
 본 시스템은 자동화된 초기화 세션과 지능형 판단 루프를 통해 분리수거를 수행합니다.
 
-1. 초기화 단계 (Initialization)
+### 1. 초기화 단계 (Initialization)
 Launch 실행: 단일 런치 파일을 통해 전체 시스템 기동.
 
 H/W 활성화: 두산 로봇팔(Doosan Robot) 시스템 전원 인가 및 초기화.
 
 노드 기동 (T+10s): 하드웨어 안정화 후 estimation_node와 control_node 자동 실행.
 
-2. 인지 및 판단 단계 (Perception & Inference)
+### 2. 인지 및 판단 단계 (Perception & Inference)
 ROI 설정: 사용자가 지정한 관심 영역(Region of Interest) 내 물체 탐지.
 
 VLM 추론:
@@ -26,7 +26,7 @@ VLM 추론:
 
 캘리브레이션 데이터를 기반으로 한 정밀 좌표 산출.
 
-3. 제어 및 실행 단계 (Control & Execution)
+### 3. 제어 및 실행 단계 (Control & Execution)
 데이터 전송 (Estimation → Control):
 
 전송 데이터: Object ID, Target XYZ/RPY, Bin XYZ

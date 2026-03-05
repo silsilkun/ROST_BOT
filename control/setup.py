@@ -24,6 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'renew = control.utils.recycle_260220:main',
+            'control_node = control.nodes.control_node:main',
         ],
     },
 )

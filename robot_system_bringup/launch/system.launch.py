@@ -1,54 +1,57 @@
 from launch import LaunchDescription
-from launch.actions import TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
-import os
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    mode_arg = DeclareLaunchArgument('mode', default_value='real')
+    host_arg = DeclareLaunchArgument('host', default_value='110.120.1.18')
+    port_arg = DeclareLaunchArgument('port', default_value='12345')
+    model_arg = DeclareLaunchArgument('model', default_value='e0509')
+    startup_delay_arg = DeclareLaunchArgument('startup_delay_sec', default_value='10.0')
 
-    perception_config = os.path.join(
-    get_package_share_directory('perception'),
-    'config',
-    'camera.yaml'
+    dsr_bringup = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                FindPackageShare('dsr_bringup2'),
+                'launch',
+                'dsr_bringup2_rviz.launch.py',
+            ])
+        ),
+        launch_arguments={
+            'mode': LaunchConfiguration('mode'),
+            'host': LaunchConfiguration('host'),
+            'port': LaunchConfiguration('port'),
+            'model': LaunchConfiguration('model'),
+        }.items(),
     )
 
-
-    # 1. 로봇 bringup (즉시 실행)
     control_node = Node(
         package='control',
         executable='control_node',
-        name='control_system',
-        output='screen'
-    )
-
-    # 2. perception 노드
-    perception_node = Node(
-        package='perception',
-        executable='perception_node',
-        name='perception',
         output='screen',
-        parameters=[perception_config]
     )
 
-    # 3. estimation 노드
     estimation_node = Node(
         package='estimation',
         executable='estimation_node',
-        name='estimation',
-        output='screen'
+        output='screen',
     )
 
-    # 4. 60초 후 perception + estimation 실행
     delayed_nodes = TimerAction(
-        period=60.0,  # 초 단위
-        actions=[
-            perception_node,
-            estimation_node
-        ]
+        period=LaunchConfiguration('startup_delay_sec'),
+        actions=[control_node, estimation_node],
     )
 
     return LaunchDescription([
-        control_node,
-        delayed_nodes
+        mode_arg,
+        host_arg,
+        port_arg,
+        model_arg,
+        startup_delay_arg,
+        dsr_bringup,
+        delayed_nodes,
     ])

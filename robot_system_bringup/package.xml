@@ -3,14 +3,17 @@
 <package format="3">
   <name>robot_system_bringup</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>System bringup launch package for Doosan + control + estimation.</description>
   <maintainer email="2001sonickim@gmail.comm">eipih</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>dsr_bringup2</exec_depend>
+  <exec_depend>control</exec_depend>
+  <exec_depend>estimation</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

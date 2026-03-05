@@ -1,6 +1,8 @@
 .vscode
-doosan-robot2
-log
-tower_builder
-ROST_BOT
-readme2.md
+doosan-robot2/
+robot_system_bringup/
+.env
+gemini_functions.py
+gemini_functions_compact.py
+__pycache__/
+*.pyc

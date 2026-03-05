@@ -102,7 +102,9 @@ git switch <브랜치 이름> #브랜치 생성 및 이동 시 -c 옵션추가, 
 7. 특정 브랜치 내에서는 특정 기능 패키지만 수정&Push
 
 ### 실행 방법
+```bash
 cd ~/ros2_ws
 colcon build
 source install/setup.bash
 ros2 launch robot_system_bringup system.launch.py
+```

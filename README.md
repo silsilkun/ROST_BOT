@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/team_character.gif" width="1280">
+</p>
+
 # ROST_BOT
 본 프로젝트는 ROS2 Humble이 설치되어 있는 환경을 기준으로 동작합니다.
 

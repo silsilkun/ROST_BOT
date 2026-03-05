@@ -52,6 +52,11 @@ VLM 추론:
 ```bash
 git clone https://github.com/silsilkun/ROST_BOT.git src
 ```
+3. gemini_api_key 파일 생성 후 Key 등록
+```bash
+cd estimation/estimation/utils
+echo "GEMINI_API_KEY=YOUR_GEMINI_API_KEY" > .env
+```
 3. 두산 로봇팔, realsense 카메라 연결
 4. TOF 센서 연결(TOF_BAUDRATE = 115200)
 4. 빌드 및 실행

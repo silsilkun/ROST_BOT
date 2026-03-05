@@ -24,7 +24,7 @@ from estimation.utils.camera_capture import (
     crop_to_roi,
     crop_to_bbox
 )
-from estimation.utils.gemini_functions_v2 import (
+from ROST_BOT.estimation.estimation.utils.gemini_functions import (
     init_gemini_client,
     check_objects_exist,
     select_target_object,

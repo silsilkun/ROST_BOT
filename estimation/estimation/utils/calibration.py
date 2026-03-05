@@ -1,15 +1,6 @@
 """
 R.O.S.T - 캘리브레이션 (calibration.py)
 uv 좌표(이미지 픽셀) → 로봇 좌표(로봇팔이 실제 이동할 좌표) 변환
-
-⚠️ PLACEHOLDER — 파트장님 복귀 후 실제 변환 행렬 채워넣기
-
-[액션 아이템]
-1. 기존 캘리브레이션 코드 + 변환 행렬 파일 공유받기
-2. 카메라 위치/각도가 데모 때와 동일한지 확인 → 다르면 재캘리브레이션
-3. 재캘리브레이션 시: ArUco 배치 → 포인트 쌍 수집 → 행렬 재계산
-4. 아래 placeholder에 실제 로직 채워넣기
-5. 최소 5개 포인트에서 오차 측정 검증
 """
 
 import os
@@ -33,10 +24,6 @@ _CALIB_CACHE = None
 
 
 def _load_calib(filepath: str = None):
-    """
-    camcalib.npz 로드.
-    - T_cam_to_work(4x4), camera_matrix(3x3), dist_coeffs 사용
-    """
     global _CALIB_CACHE
     if _CALIB_CACHE is not None:
         return _CALIB_CACHE
@@ -67,22 +54,14 @@ def _load_calib(filepath: str = None):
 
 
 def load_transform_matrix(filepath: str = None):
-    """
-    하위 호환을 위해 유지: camcalib 로드 후 dict 반환.
-    """
     return _load_calib(filepath=filepath)
 
 
 def gemini_to_pixel(center_normalized: list, roi: tuple) -> tuple:
-    """
-    Gemini 정규화 좌표(0~1000) → 전체 이미지 픽셀 좌표.
-    center_normalized: [cy, cx] (Gemini 출력, y먼저 x나중)
-    roi: (roi_x, roi_y, roi_w, roi_h)
-    """
     cy_norm, cx_norm = center_normalized
     roi_x, roi_y, roi_w, roi_h = roi
 
-    # [수정 포인트] 정규화 범위가 바뀌면 config.py의 GEMINI_COORD_RANGE만 수정
+    #정규화 범위가 바뀌면 config.py의 GEMINI_COORD_RANGE만 수정
     local_x = int(cx_norm / GEMINI_COORD_RANGE * roi_w)
     local_y = int(cy_norm / GEMINI_COORD_RANGE * roi_h)
 
@@ -94,10 +73,6 @@ def gemini_to_pixel(center_normalized: list, roi: tuple) -> tuple:
 
 def pixel_to_robot(pixel_u: int, pixel_v: int, depth_map_m: np.ndarray,
                    transform_matrix):
-    """
-    이미지 픽셀 좌표(u,v) + depth → 로봇 좌표(tx,ty).
-    - camcalib(dict): K + D + T_cam_to_work 사용, depth 기반 3D 변환
-    """
     if isinstance(transform_matrix, dict):
         K = transform_matrix["K"]
         D = transform_matrix["D"]
@@ -156,10 +131,6 @@ def pixel_to_robot(pixel_u: int, pixel_v: int, depth_map_m: np.ndarray,
 
 def uv_to_robot_coords(center_normalized: list, roi: tuple,
                         depth_map_m: np.ndarray, transform_matrix) -> tuple:
-    """
-    Gemini 좌표 → 로봇 좌표. 한 번에 변환.
-    gemini_to_pixel + pixel_to_robot 순차 호출.
-    """
     pixel_u, pixel_v = gemini_to_pixel(center_normalized, roi)
     result = pixel_to_robot(pixel_u, pixel_v, depth_map_m, transform_matrix)
     if result is None:
@@ -170,10 +141,6 @@ def uv_to_robot_coords(center_normalized: list, roi: tuple,
 
 
 def gemini_to_robot(center_normalized: list, roi: tuple, depth_map_m: np.ndarray):
-    """
-    Backward-compatible API for estimation_node.
-    Returns (tx, ty, tz). tz is not used in current pipeline, so 0.0 is returned.
-    """
     T = _load_calib()
     result = uv_to_robot_coords(center_normalized, roi, depth_map_m, T)
     if result is None:

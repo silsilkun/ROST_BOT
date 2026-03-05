@@ -2,8 +2,6 @@
 R.O.S.T - 초기 설정 함수 (setup_functions.py)
 ROI 선택(마우스 드래그) + bin 위치 7개 선택(마우스 클릭)
 프로그램 시작 시 1회만 실행한다.
-
-[Qt 호환] 창을 닫았다 여는 대신, 하나의 창을 처음부터 끝까지 유지한다.
 """
 
 import cv2
@@ -26,11 +24,6 @@ def _ensure_window(frame: np.ndarray):
 
 
 def select_roi(frame: np.ndarray) -> tuple:
-    """
-    마우스 드래그로 ROI(관심 영역)를 선택한다.
-    → 이 네모 안의 영역만 Gemini한테 보낸다.
-    Returns: (x, y, w, h) 또는 실패 시 None
-    """
     if frame is None or frame.size == 0:
         print("[에러] 프레임이 비어있습니다.")
         return None
@@ -94,12 +87,6 @@ def select_roi(frame: np.ndarray) -> tuple:
 
 
 def select_bin_positions(frame: np.ndarray) -> dict:
-    """
-    7개 쓰레기통(bin) 위치를 마우스 클릭으로 지정한다.
-    Returns: {"box": (bx,by), "paper": (bx,by), ...} 또는 실패 시 None
-
-    [중요] select_roi와 같은 창(_WIN)을 공유한다. 창을 새로 만들지 않는다.
-    """
     if frame is None or frame.size == 0:
         print("[에러] 프레임이 비어있습니다.")
         return None
@@ -111,10 +98,10 @@ def select_bin_positions(frame: np.ndarray) -> dict:
         if event == cv2.EVENT_LBUTTONDOWN:
             click_point[0] = (x, y)
 
-    # [수정 포인트] 카테고리 순서를 바꾸고 싶으면 여기만 수정
+    # 카테고리 순서를 바꾸고 싶으면 여기만 수정
     categories_ordered = list(CATEGORIES.keys())
 
-    # 같은 창에 콜백만 교체 (창을 새로 만들지 않음!)
+    # 같은 창에 콜백만 교체
     cv2.setMouseCallback(_WIN, on_click)
 
     print("\n[설정] 7개 bin 위치를 순서대로 클릭하세요.")
@@ -122,7 +109,7 @@ def select_bin_positions(frame: np.ndarray) -> dict:
     for category in categories_ordered:
         display = frame.copy()
 
-        # 이미 선택된 위치들 표시 (초록 원)
+        # 선택된 위치들 표시 (bin)
         for prev_cat, (bx, by) in bin_positions.items():
             cv2.circle(display, (bx, by), 10, (0, 255, 0), -1)
             cv2.putText(display, prev_cat, (bx+15, by+5),
@@ -147,7 +134,7 @@ def select_bin_positions(frame: np.ndarray) -> dict:
         bin_positions[category] = (bx, by)
         print(f"    ✓ {category}: ({bx}, {by})")
 
-    # [안전장치] 7개 전부 선택되었는지 확인
+    # 7개 전부 선택되었는지 확인
     assert len(bin_positions) == len(CATEGORIES), \
         f"bin 위치 {len(bin_positions)}개만 선택됨 (필요: {len(CATEGORIES)}개)"
 

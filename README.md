@@ -46,7 +46,22 @@ VLM 추론:
 
 ## 실행 순서
 ### 사용자용
-추후 작성 예정
+
+1. 워크 스페이스 폴더 생성(ros2_ws)
+2. 폴더명 'src'로 클론
+```bash
+git clone https://github.com/silsilkun/ROST_BOT.git src
+```
+3. 두산 로봇팔, realsense 카메라 연결
+4. TOF 센서 연결(TOF_BAUDRATE = 115200)
+4. 빌드 및 실행
+```bash
+cd ~/ros2_ws
+colcon build
+source install/setup.bash
+ros2 launch robot_system_bringup system.launch.py
+```
+
 ### 개발자용 (협업 세팅 가이드)
 *이 프로젝트는 협업용 패키지들만 GitHub로 관리하며, 개인 참고용(대용량) 패키지는 로컬에만 유지합니다.*
 

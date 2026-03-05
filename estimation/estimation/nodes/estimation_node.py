@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 import rclpy
 from rclpy.node import Node
 from rost_interfaces.srv import EstimationToControl
@@ -9,6 +10,7 @@ from estimation.utils.config import PREFER_GRASP_PTS_SHORT_SIDE
 from estimation.utils.config import GRIPPER_ANGLE_USE_GRASP_NORMAL
 from estimation.utils.config import USE_COMPLEMENTARY_GRIPPER_ANGLE
 from estimation.utils.config import GRIPPER_ANGLE_OFFSET_DEG_CW
+from estimation.utils.config import USE_OBJECT_CONTOUR_GEOMETRY
 from estimation.utils.config import BIN_POSITIONS
 from estimation.utils.setup_functions import (
     select_roi,
@@ -119,6 +121,14 @@ class VisionPipelineNode(Node):
                     seg_norm = (grasp_pts[0], grasp_pts[1])
                     seg_is_grasp = True
 
+        contour_geom = None
+        if USE_OBJECT_CONTOUR_GEOMETRY:
+            contour_geom = self._estimate_geom_from_contour(roi_img, target.get("bbox"), roi, depth_m)
+
+        if contour_geom is not None:
+            short_side_mm, angle_out, _contour_short_px = contour_geom
+            return short_side_mm, float(angle_out)
+
         if seg_norm is None:
             return short_side_px, None
 
@@ -198,6 +208,142 @@ class VisionPipelineNode(Node):
 
         return int(round(dist_mm))
 
+    def _estimate_geom_from_contour(self, roi_img, bbox_norm, roi_rect, depth_m):
+        if not (isinstance(bbox_norm, (list, tuple)) and len(bbox_norm) == 4):
+            return None
+        if roi_img is None or depth_m is None:
+            return None
+
+        roi_h, roi_w = roi_img.shape[:2]
+        ymin, xmin, ymax, xmax = [float(v) for v in bbox_norm]
+        ymin, ymax = min(ymin, ymax), max(ymin, ymax)
+        xmin, xmax = min(xmin, xmax), max(xmin, xmax)
+        x1 = int(round(xmin / GEMINI_COORD_RANGE * roi_w))
+        y1 = int(round(ymin / GEMINI_COORD_RANGE * roi_h))
+        x2 = int(round(xmax / GEMINI_COORD_RANGE * roi_w))
+        y2 = int(round(ymax / GEMINI_COORD_RANGE * roi_h))
+        mx = int((x2 - x1) * 0.12)
+        my = int((y2 - y1) * 0.12)
+        x1, y1 = max(0, x1 - mx), max(0, y1 - my)
+        x2, y2 = min(roi_w, x2 + mx), min(roi_h, y2 + my)
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        crop = roi_img[y1:y2, x1:x2]
+        if crop.size == 0:
+            return None
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        th_inv = cv2.bitwise_not(th)
+
+        def pick_rect(mask):
+            cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            best = None
+            best_area = 0.0
+            H, W = mask.shape[:2]
+            for c in cnts:
+                area = cv2.contourArea(c)
+                if area < 200:
+                    continue
+                x, y, w, h = cv2.boundingRect(c)
+                if w <= 2 or h <= 2:
+                    continue
+                if w > 0.97 * W and h > 0.97 * H:
+                    continue
+                if area > best_area:
+                    best_area = area
+                    best = cv2.minAreaRect(c)
+            return best, best_area
+
+        rect_a, area_a = pick_rect(th)
+        rect_b, area_b = pick_rect(th_inv)
+        rect = rect_a if area_a >= area_b else rect_b
+        if rect is None:
+            return None
+
+        box = cv2.boxPoints(rect)
+        box[:, 0] += x1
+        box[:, 1] += y1
+        box = box.astype(np.float32)
+
+        def dist(p, q):
+            return float(np.hypot(p[0] - q[0], p[1] - q[1]))
+
+        edges = []
+        for i in range(4):
+            j = (i + 1) % 4
+            edges.append((dist(box[i], box[j]), i, j))
+        dmin, imin, jmin = min(edges, key=lambda x: x[0])
+        p1, p2 = box[imin], box[jmin]
+
+        roi_x, roi_y, _, _ = roi_rect
+        u1, v1 = int(round(roi_x + p1[0])), int(round(roi_y + p1[1]))
+        u2, v2 = int(round(roi_x + p2[0])), int(round(roi_y + p2[1]))
+        p1 = pixel_to_robot(u1, v1, depth_m, self.calib)
+        p2 = pixel_to_robot(u2, v2, depth_m, self.calib)
+        if p1 is None or p2 is None:
+            return None
+        tx1, ty1 = p1
+        tx2, ty2 = p2
+
+        vx, vy = (tx2 - tx1), (ty2 - ty1)
+        short_side_mm = int(round((vx ** 2 + vy ** 2) ** 0.5))
+        angle_out = np.degrees(np.arctan2(abs(vy), abs(vx)))
+        return short_side_mm, float(angle_out), int(round(dmin))
+
+    def _save_target_debug_images(self, roi_img, target):
+        if roi_img is None or target is None:
+            return
+
+        h, w = roi_img.shape[:2]
+        px = lambda val, size: int(round(val / GEMINI_COORD_RANGE * size))
+
+        corners = target.get("corners")
+        if not (isinstance(corners, list) and len(corners) == 4):
+            return
+
+        pts = np.array([(px(x, w), px(y, h)) for x, y in corners], dtype=np.int32).reshape((-1, 1, 2))
+        cy, cx = target.get("center", [0, 0])
+        center_px = (px(cx, w), px(cy, h))
+
+        display = roi_img.copy()
+        cv2.polylines(display, [pts], True, (0, 255, 0), 2)
+        cv2.circle(display, center_px, 5, (0, 0, 255), -1)
+
+        grasp_pts = target.get("grasp_pts")
+        if isinstance(grasp_pts, list) and len(grasp_pts) == 2:
+            (gx1, gy1), (gx2, gy2) = grasp_pts
+            g1 = (px(gx1, w), px(gy1, h))
+            g2 = (px(gx2, w), px(gy2, h))
+            cv2.line(display, g1, g2, (255, 0, 0), 2)
+
+        p0 = tuple(pts[0][0])
+        label = target.get("label", "target")
+        angle = float(target.get("angle", 0.0))
+        cv2.putText(
+            display,
+            f"{label} ({angle:.1f}deg)",
+            (p0[0], p0[1] - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
+        )
+
+        cv2.imwrite("/tmp/rost_step2_debug.png", display)
+
+        raw = target.get("raw_corners")
+        if raw:
+            raw_pts = np.array([(px(x, w), px(y, h)) for x, y in raw], dtype=np.int32).reshape((-1, 1, 2))
+            raw_swap_pts = np.array([(px(y, w), px(x, h)) for x, y in raw], dtype=np.int32).reshape((-1, 1, 2))
+            dbg_raw = roi_img.copy()
+            cv2.polylines(dbg_raw, [raw_pts], True, (255, 0, 0), 2)
+            cv2.imwrite("/tmp/rost_step2_debug_raw.png", dbg_raw)
+            dbg_swap = roi_img.copy()
+            cv2.polylines(dbg_swap, [raw_swap_pts], True, (0, 0, 255), 2)
+            cv2.imwrite("/tmp/rost_step2_debug_raw_swap.png", dbg_swap)
+
 
     def main_loop(self):
         # control 응답 전에 재요청이 쌓이면 동작이 겹치므로 차단한다.
@@ -217,6 +363,7 @@ class VisionPipelineNode(Node):
         target = select_target_object(self.gemini, roi_img)
         if target is None:
             return
+        self._save_target_debug_images(roi_img, target)
 
         bbox_img = crop_to_bbox(roi_img, target["bbox"])
         type_id = classify_object(self.gemini, bbox_img)

@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>R.O.S.T — Robotics Object Sorting Technology</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display&family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --white: #ffffff;
+  --bg: #f5f7fa;
+  --bg2: #eef2f7;
+  --surface: #ffffff;
+  --border: #e0e7ef;
+  --accent: #0d9e72;
+  --accent-light: #e6f7f2;
+  --accent2: #1a6fcf;
+  --accent2-light: #e8f1fc;
+  --text: #111827;
+  --sub: #374151;
+  --muted: #6b7280;
+  --layer1: #1a6fcf;
+  --layer2: #0d9e72;
+  --layer3: #e07b39;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', 'Noto Sans KR', sans-serif;
+  font-weight: 400;
+  overflow-x: hidden;
+}
+
+/* NAV */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 3rem;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 20px rgba(0,0,0,0.06);
+}
+.nav-logo {
+  font-family: 'DM Mono', monospace;
+  font-size: 1rem; color: var(--accent);
+  font-weight: 500; letter-spacing: 0.12em; text-decoration: none;
+}
+.nav-links { display: flex; gap: 2.2rem; list-style: none; }
+.nav-links a {
+  color: var(--muted); text-decoration: none;
+  font-size: 0.88rem; font-weight: 500; transition: color .2s;
+}
+.nav-links a:hover { color: var(--accent); }
+.nav-badge {
+  font-family: 'DM Mono', monospace; font-size: 0.68rem;
+  color: var(--accent); border: 1.5px solid var(--accent);
+  padding: .25rem .7rem; border-radius: 100px;
+  background: var(--accent-light);
+}
+
+/* HERO */
+#hero {
+  min-height: 100vh;
+  display: grid; grid-template-columns: 1fr 1fr;
+  align-items: center; padding: 7rem 4rem 4rem;
+  background: var(--white); position: relative; overflow: hidden;
+}
+#hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 60% 60% at 80% 40%, rgba(13,158,114,0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 40% at 20% 80%, rgba(26,111,207,0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+#hero::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, rgba(13,158,114,0.12) 1px, transparent 1px);
+  background-size: 32px 32px; pointer-events: none;
+  mask-image: radial-gradient(ellipse 80% 80% at 80% 50%, black 0%, transparent 100%);
+}
+.hero-left { position: relative; z-index: 1; }
+.hero-eyebrow {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-family: 'DM Mono', monospace; font-size: 0.72rem;
+  color: var(--accent); letter-spacing: 0.2em; text-transform: uppercase;
+  margin-bottom: 1.8rem; padding: .3rem .9rem;
+  background: var(--accent-light); border-radius: 100px;
+  border: 1px solid rgba(13,158,114,0.25);
+  opacity: 0; animation: fadeUp .7s .2s forwards;
+}
+.hero-eyebrow::before { content: '●'; font-size: .5rem; animation: blink 1.5s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+.hero-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: clamp(3rem, 6vw, 5.5rem); font-weight: 400;
+  line-height: 1.05; letter-spacing: -0.02em;
+  margin-bottom: 1.4rem;
+  opacity: 0; animation: fadeUp .7s .35s forwards;
+}
+.hero-title .green { color: var(--accent); }
+.hero-title .blue  { color: var(--accent2); }
+.hero-sub {
+  font-size: 1.05rem; color: var(--sub); line-height: 1.8;
+  max-width: 460px; margin-bottom: 2.5rem;
+  opacity: 0; animation: fadeUp .7s .5s forwards;
+}
+.hero-tags { display: flex; flex-wrap: wrap; gap: .6rem; opacity: 0; animation: fadeUp .7s .65s forwards; }
+.tag {
+  font-family: 'DM Mono', monospace; font-size: 0.7rem;
+  padding: .3rem .8rem; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--sub);
+}
+.hero-right {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; animation: fadeIn .9s .7s forwards;
+}
+.hero-visual { width: 420px; height: 420px; position: relative; }
+.hero-visual svg { width: 100%; height: 100%; }
+.ring1 { animation: spin 22s linear infinite; transform-origin: 50% 50%; }
+.ring2 { animation: spinR 16s linear infinite; transform-origin: 50% 50%; }
+.ring3 { animation: spin 35s linear infinite; transform-origin: 50% 50%; }
+@keyframes spin  { to { transform: rotate(360deg); } }
+@keyframes spinR { to { transform: rotate(-360deg); } }
+@keyframes fadeUp { from{opacity:0;transform:translateY(22px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+
+.layer-float {
+  position: absolute; background: white;
+  border: 1.5px solid var(--border); border-radius: 12px;
+  padding: .7rem 1rem; box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+  font-size: 0.78rem; font-weight: 600;
+  display: flex; align-items: center; gap: .5rem; white-space: nowrap;
+}
+.layer-float .dot { width: 8px; height: 8px; border-radius: 50%; }
+.lf1 { top: 12%; left: -5%; }
+.lf2 { top: 44%; right: -8%; }
+.lf3 { bottom: 12%; left: 0%; }
+
+/* SECTIONS */
+.section-wrap { max-width: 1200px; margin: 0 auto; padding: 6rem 3rem; }
+.section-label {
+  font-family: 'DM Mono', monospace; font-size: 0.7rem;
+  color: var(--accent); letter-spacing: 0.25em; text-transform: uppercase; margin-bottom: .75rem;
+}
+.section-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: clamp(2rem, 3.5vw, 2.8rem); font-weight: 400;
+  line-height: 1.2; margin-bottom: 1rem;
+}
+.divider { width: 48px; height: 3px; background: var(--accent); border-radius: 2px; margin: 1rem 0 2.5rem; }
+
+/* OVERVIEW */
+.overview-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 1.5rem; margin-bottom: 2rem; }
+.ov-card {
+  background: var(--white); border: 1px solid var(--border); border-radius: 16px;
+  padding: 2rem; transition: transform .25s, box-shadow .25s;
+}
+.ov-card:hover { transform: translateY(-5px); box-shadow: 0 16px 40px rgba(0,0,0,0.08); }
+.ov-icon { font-size: 2rem; margin-bottom: 1rem; }
+.ov-title { font-size: 1rem; font-weight: 700; margin-bottom: .5rem; }
+.ov-body { font-size: 0.88rem; color: var(--muted); line-height: 1.8; }
+
+.stats-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; }
+.stat-card {
+  background: var(--white); border: 1px solid var(--border); border-radius: 16px;
+  padding: 1.5rem; text-align: center;
+}
+.stat-num { font-family: 'DM Serif Display', serif; font-size: 2.8rem; color: var(--accent); line-height: 1; }
+.stat-label { font-size: 0.8rem; color: var(--muted); margin-top: .4rem; line-height: 1.5; }
+
+/* ARCHITECTURE */
+.arch-layers { display: flex; flex-direction: column; gap: 1rem; }
+.arch-layer {
+  display: grid; grid-template-columns: 160px 1fr auto;
+  align-items: center; gap: 2rem;
+  background: var(--bg); border: 1.5px solid var(--border); border-radius: 16px;
+  padding: 1.8rem 2rem; position: relative; overflow: hidden;
+  transition: box-shadow .25s, transform .25s, border-color .25s;
+}
+.arch-layer:hover { transform: translateX(6px); box-shadow: 0 8px 30px rgba(0,0,0,0.07); }
+.arch-layer::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 5px; border-radius: 16px 0 0 16px;
+}
+.l-perception::before { background: var(--layer1); }
+.l-decision::before   { background: var(--layer2); }
+.l-control::before    { background: var(--layer3); }
+.l-perception:hover { border-color: var(--layer1); }
+.l-decision:hover   { border-color: var(--layer2); }
+.l-control:hover    { border-color: var(--layer3); }
+.layer-num { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); letter-spacing: 0.15em; margin-bottom: .3rem; }
+.layer-name { font-family: 'DM Serif Display', serif; font-size: 1.4rem; }
+.l-perception .layer-name { color: var(--layer1); }
+.l-decision .layer-name   { color: var(--layer2); }
+.l-control .layer-name    { color: var(--layer3); }
+.layer-desc { font-size: 0.88rem; color: var(--sub); line-height: 1.8; }
+.layer-pills { display: flex; flex-direction: column; gap: .4rem; align-items: flex-end; }
+.pill { font-family: 'DM Mono', monospace; font-size: 0.66rem; padding: .22rem .7rem; border-radius: 6px; white-space: nowrap; }
+.l-perception .pill { background: rgba(26,111,207,0.1); color: var(--layer1); border: 1px solid rgba(26,111,207,0.2); }
+.l-decision .pill   { background: rgba(13,158,114,0.1); color: var(--layer2); border: 1px solid rgba(13,158,114,0.2); }
+.l-control .pill    { background: rgba(224,123,57,0.1);  color: var(--layer3); border: 1px solid rgba(224,123,57,0.2); }
+.arch-arrow-row {
+  display: flex; align-items: center; gap: .7rem; padding: .4rem 2rem;
+  font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--muted);
+}
+.arrow-line { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+.arrow-icon { color: var(--accent); font-size: 1.1rem; }
+
+/* DEMO */
+.demo-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 1.5rem; }
+.demo-card {
+  background: var(--white); border: 1px solid var(--border); border-radius: 16px;
+  overflow: hidden; transition: transform .25s, box-shadow .25s;
+}
+.demo-card:hover { transform: translateY(-6px); box-shadow: 0 20px 50px rgba(0,0,0,0.1); }
+.demo-thumb {
+  aspect-ratio: 16/9; background: linear-gradient(135deg, var(--bg), var(--bg2));
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .5rem; position: relative;
+}
+.demo-thumb::after {
+  content: '이미지 / 영상 삽입'; position: absolute; bottom: .6rem;
+  font-family: 'DM Mono', monospace; font-size: 0.58rem; color: var(--muted);
+}
+.demo-emoji { font-size: 3rem; }
+.demo-tag {
+  font-family: 'DM Mono', monospace; font-size: 0.6rem;
+  padding: .2rem .6rem; border-radius: 6px;
+  background: var(--accent-light); color: var(--accent);
+  border: 1px solid rgba(13,158,114,0.2);
+}
+.demo-body { padding: 1.4rem; }
+.demo-label { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: .4rem; }
+.demo-title { font-size: 1rem; font-weight: 700; margin-bottom: .4rem; }
+.demo-desc { font-size: 0.83rem; color: var(--muted); line-height: 1.7; }
+.video-box {
+  margin-top: 2rem; background: var(--white); border: 1.5px solid var(--border);
+  border-radius: 16px; padding: 2rem; border-left: 5px solid var(--accent);
+}
+.video-label { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--accent); letter-spacing: 0.15em; margin-bottom: 1rem; }
+.video-placeholder {
+  aspect-ratio: 16/9; background: var(--bg2); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'DM Mono', monospace; font-size: 0.85rem; color: var(--muted); gap: .75rem;
+}
+
+/* TEAM */
+.team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 1.5rem; }
+.team-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 16px;
+  padding: 2rem 1.5rem; text-align: center;
+  transition: transform .25s, box-shadow .25s, border-color .25s, background .25s;
+}
+.team-card:hover {
+  transform: translateY(-5px); box-shadow: 0 16px 40px rgba(0,0,0,0.08);
+  border-color: var(--accent); background: var(--white);
+}
+.team-avatar {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: var(--accent-light); border: 2.5px solid var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2rem; margin: 0 auto 1rem;
+}
+.team-name { font-size: 1.05rem; font-weight: 700; margin-bottom: .25rem; }
+.team-role { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: .9rem; }
+.team-skills { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; }
+.sk { font-size: 0.72rem; padding: .2rem .55rem; background: var(--white); border: 1px solid var(--border); border-radius: 6px; color: var(--sub); }
+
+/* FOOTER */
+footer {
+  background: var(--text); color: rgba(255,255,255,0.7);
+  padding: 2.5rem 3rem; display: flex; justify-content: space-between; align-items: center;
+}
+.footer-logo { font-family: 'DM Mono', monospace; font-size: 1rem; color: var(--accent); letter-spacing: 0.15em; }
+.footer-info { font-size: 0.8rem; line-height: 1.6; }
+
+/* REVEAL */
+.reveal { opacity: 0; transform: translateY(28px); transition: opacity .65s ease, transform .65s ease; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* RESPONSIVE */
+@media (max-width: 900px) {
+  #hero { grid-template-columns: 1fr; padding: 7rem 2rem 3rem; }
+  .hero-right { display: none; }
+  nav { padding: .9rem 1.5rem; }
+  .nav-links { display: none; }
+  .section-wrap { padding: 4rem 1.5rem; }
+  .overview-grid { grid-template-columns: 1fr; }
+  .stats-row { grid-template-columns: repeat(2,1fr); }
+  .arch-layer { grid-template-columns: 1fr; }
+  .layer-pills { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
+  .demo-grid { grid-template-columns: 1fr; }
+  footer { flex-direction: column; gap: 1rem; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="#hero" class="nav-logo">R·O·S·T</a>
+  <ul class="nav-links">
+    <li><a href="#overview">개요</a></li>
+    <li><a href="#architecture">시스템 구조</a></li>
+    <li><a href="#demo">데모</a></li>
+    <li><a href="#team">팀원</a></li>
+  </ul>
+  <span class="nav-badge">2026 PROJECT</span>
+</nav>
+
+<!-- HERO -->
+<div id="hero">
+  <div class="hero-left">
+    <div class="hero-eyebrow">KG Kairos Robotics Team</div>
+    <h1 class="hero-title">
+      <span class="green">R.O.S.T</span><br>
+      Robotics<br>
+      <span class="blue">Object Sorting</span><br>
+      Technology
+    </h1>
+    <p class="hero-sub">
+      VLM 기반 자동 폐기물 분류 로봇 시스템.<br>
+      Gemini API × Intel RealSense × Doosan 협동로봇을<br>연동한 지능형 3-Layer 파이프라인.
+    </p>
+    <div class="hero-tags">
+      <span class="tag">Gemini 2.5 Flash</span>
+      <span class="tag">RealSense D435i</span>
+      <span class="tag">Doosan E0509</span>
+      <span class="tag">ROS2</span>
+      <span class="tag">VLM Pipeline</span>
+    </div>
+  </div>
+  <div class="hero-right">
+    <div class="hero-visual">
+      <div class="layer-float lf1" style="color:var(--layer1);border-color:rgba(26,111,207,0.25);background:rgba(26,111,207,0.05);">
+        <span class="dot" style="background:var(--layer1)"></span>Perception Layer
+      </div>
+      <div class="layer-float lf2" style="color:var(--layer2);border-color:rgba(13,158,114,0.25);background:rgba(13,158,114,0.05);">
+        <span class="dot" style="background:var(--layer2)"></span>Decision · VLM
+      </div>
+      <div class="layer-float lf3" style="color:var(--layer3);border-color:rgba(224,123,57,0.25);background:rgba(224,123,57,0.05);">
+        <span class="dot" style="background:var(--layer3)"></span>Control Layer
+      </div>
+      <svg viewBox="0 0 420 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <g class="ring3">
+          <circle cx="210" cy="210" r="190" stroke="#e0e7ef" stroke-width="1.5" stroke-dasharray="3 18"/>
+          <circle cx="210" cy="20" r="5" fill="#e07b39" opacity=".7"/>
+        </g>
+        <g class="ring2">
+          <circle cx="210" cy="210" r="150" stroke="rgba(26,111,207,0.25)" stroke-width="1.5" stroke-dasharray="5 15"/>
+          <circle cx="210" cy="60" r="6" fill="var(--layer1)"/>
+          <circle cx="360" cy="210" r="4" fill="rgba(26,111,207,0.5)"/>
+        </g>
+        <g class="ring1">
+          <circle cx="210" cy="210" r="105" stroke="rgba(13,158,114,0.35)" stroke-width="2" stroke-dasharray="8 12"/>
+          <circle cx="210" cy="105" r="7" fill="var(--layer2)"/>
+          <circle cx="315" cy="210" r="5" fill="rgba(13,158,114,0.5)"/>
+        </g>
+        <circle cx="210" cy="210" r="70" fill="rgba(13,158,114,0.06)"/>
+        <circle cx="210" cy="210" r="48" fill="rgba(13,158,114,0.1)"/>
+        <circle cx="210" cy="210" r="28" fill="rgba(13,158,114,0.18)"/>
+        <text x="210" y="204" text-anchor="middle" font-family="DM Mono" font-size="10" fill="rgba(13,158,114,0.9)" letter-spacing="2">RОСТ</text>
+        <text x="210" y="220" text-anchor="middle" font-family="DM Mono" font-size="7" fill="rgba(13,158,114,0.5)" letter-spacing="1">AI SORTING</text>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- OVERVIEW -->
+<div id="overview" style="background:var(--bg);">
+<div class="section-wrap">
+  <p class="section-label">01 · Overview</p>
+  <h2 class="section-title">프로젝트 개요</h2>
+  <div class="divider"></div>
+  <div class="overview-grid reveal">
+    <div class="ov-card">
+      <div class="ov-icon">♻️</div>
+      <div class="ov-title">배경 및 필요성</div>
+      <div class="ov-body">재활용 분류 오류율은 여전히 높고, 현장 작업자의 부담은 지속적으로 증가하고 있습니다. 인력 의존형 분류 공정을 AI 기반 자동화로 대체하여 정확성과 효율을 동시에 향상시킵니다.</div>
+    </div>
+    <div class="ov-card">
+      <div class="ov-icon">🧠</div>
+      <div class="ov-title">핵심 접근법 — VLM</div>
+      <div class="ov-body">Vision Language Model을 분류 판단의 핵심 엔진으로 채택. 단순 이미지 분류를 넘어 형태·재질·상태를 종합 분석하는 자연어 기반 추론으로 복잡한 객체도 처리합니다.</div>
+    </div>
+    <div class="ov-card">
+      <div class="ov-icon">🎯</div>
+      <div class="ov-title">목표 성과</div>
+      <div class="ov-body">폐기물 카테고리 분류 정확도 향상, 저신뢰도 객체에 대한 Unknown 안전 처리 구현, 완전 자동화된 Pick &amp; Place 파이프라인 실현.</div>
+    </div>
+    <div class="ov-card">
+      <div class="ov-icon">⚙️</div>
+      <div class="ov-title">기술 스택</div>
+      <div class="ov-body">Gemini 2.5 Flash · Intel RealSense D435i · Doosan E0509 · ROS2 Humble · Python · OpenCV</div>
+    </div>
+  </div>
+  <div class="stats-row reveal">
+    <div class="stat-card">
+      <div class="stat-num">30<span style="font-size:1.5rem">+</span></div>
+      <div class="stat-label">VLM 분류 실험<br>누적 테스트</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">3</div>
+      <div class="stat-label">시스템 레이어<br>Perception · Decision · Control</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">6<span style="font-size:1.5rem">+</span></div>
+      <div class="stat-label">분류 카테고리<br>캔 · 플라스틱 · 종이 등</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">2</div>
+      <div class="stat-label">Gemini 모델 비교<br>Flash vs. Robotics-ER</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ARCHITECTURE -->
+<div id="architecture" style="background:var(--white);">
+<div class="section-wrap">
+  <p class="section-label">02 · Architecture</p>
+  <h2 class="section-title">시스템 구조</h2>
+  <div class="divider"></div>
+  <div class="arch-layers">
+    <div class="arch-layer l-perception reveal">
+      <div>
+        <div class="layer-num">Layer 01</div>
+        <div class="layer-name">Perception</div>
+      </div>
+      <div class="layer-desc">Intel RealSense D435i로 RGB + Depth 이미지를 실시간 캡처합니다. 객체 감지 및 3D 좌표 변환, 그리퍼 각도 계산 등 물체 인식의 모든 기초 데이터를 처리하는 입력 레이어입니다.</div>
+      <div class="layer-pills">
+        <span class="pill">RealSense D435i</span>
+        <span class="pill">OpenCV</span>
+        <span class="pill">Depth Estimation</span>
+        <span class="pill">3D Coord</span>
+      </div>
+    </div>
+    <div class="arch-arrow-row">
+      <div class="arrow-line"></div>
+      <span class="arrow-icon">↓</span>
+      <span style="font-family:'DM Mono',monospace;font-size:.68rem;color:var(--muted);">이미지 + 좌표 데이터 전달</span>
+      <div class="arrow-line"></div>
+    </div>
+    <div class="arch-layer l-decision reveal">
+      <div>
+        <div class="layer-num">Layer 02</div>
+        <div class="layer-name">Decision</div>
+      </div>
+      <div class="layer-desc">Gemini API(VLM)에 이미지를 전송하고 자연어 추론으로 폐기물 카테고리를 분류합니다. Evidence 기반 분류, 저신뢰도 Unknown 처리, JSON 방어 코딩 등 견고한 프롬프트 엔지니어링을 적용합니다.</div>
+      <div class="layer-pills">
+        <span class="pill">Gemini 2.5 Flash</span>
+        <span class="pill">Prompt Engineering</span>
+        <span class="pill">JSON Parsing</span>
+        <span class="pill">VLM Pipeline</span>
+      </div>
+    </div>
+    <div class="arch-arrow-row">
+      <div class="arrow-line"></div>
+      <span class="arrow-icon">↓</span>
+      <span style="font-family:'DM Mono',monospace;font-size:.68rem;color:var(--muted);">분류 결과 → 제어 명령 변환</span>
+      <div class="arrow-line"></div>
+    </div>
+    <div class="arch-layer l-control reveal">
+      <div>
+        <div class="layer-num">Layer 03</div>
+        <div class="layer-name">Control</div>
+      </div>
+      <div class="layer-desc">ROS2를 통해 Doosan E0509 협동로봇에 Pick &amp; Place 명령을 전달합니다. 분류 결과에 따라 목표 위치를 결정하고 그리퍼 제어 및 안전 동작을 실행합니다.</div>
+      <div class="layer-pills">
+        <span class="pill">ROS2 Humble</span>
+        <span class="pill">Doosan E0509</span>
+        <span class="pill">Gripper Control</span>
+        <span class="pill">Pick &amp; Place</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- DEMO -->
+<div id="demo" style="background:var(--bg);">
+<div class="section-wrap">
+  <p class="section-label">03 · Demo Results</p>
+  <h2 class="section-title">VLM 분류 데모</h2>
+  <div class="divider"></div>
+  <div class="demo-grid">
+    <div class="demo-card reveal">
+      <div class="demo-thumb">
+        <div class="demo-emoji">🥤</div>
+        <div class="demo-tag">CAN · METAL</div>
+      </div>
+      <div class="demo-body">
+        <div class="demo-label">Experiment 01</div>
+        <div class="demo-title">캔류 분류</div>
+        <div class="demo-desc">알루미늄 캔 감지 및 금속 재질 판별. Gemini의 반사면 분석을 통한 정확한 카테고리 출력.</div>
+      </div>
+    </div>
+    <div class="demo-card reveal">
+      <div class="demo-thumb">
+        <div class="demo-emoji">🧴</div>
+        <div class="demo-tag">PLASTIC · PET</div>
+      </div>
+      <div class="demo-body">
+        <div class="demo-label">Experiment 02</div>
+        <div class="demo-title">플라스틱 분류</div>
+        <div class="demo-desc">PET 병 및 플라스틱 용기. 형태·투명도·라벨 유무를 종합한 VLM 추론 프로세스.</div>
+      </div>
+    </div>
+    <div class="demo-card reveal">
+      <div class="demo-thumb">
+        <div class="demo-emoji">❓</div>
+        <div class="demo-tag">UNKNOWN · SAFE</div>
+      </div>
+      <div class="demo-body">
+        <div class="demo-label">Experiment 03</div>
+        <div class="demo-title">Unknown 처리</div>
+        <div class="demo-desc">저신뢰도 객체에 대한 자동 Unknown 분류. 오분류 방지를 위한 안전 로직 실증.</div>
+      </div>
+    </div>
+  </div>
+  <div class="video-box reveal">
+    <div class="video-label">🎬 Demo Video</div>
+    <div class="video-placeholder">데모 영상을 여기에 삽입하세요 &nbsp;·&nbsp; mp4 또는 YouTube embed</div>
+  </div>
+</div>
+</div>
+
+<!-- TEAM -->
+<div id="team" style="background:var(--white);">
+<div class="section-wrap">
+  <p class="section-label">04 · Team</p>
+  <h2 class="section-title">팀원 소개</h2>
+  <div class="divider"></div>
+  <div class="team-grid">
+    <div class="team-card reveal">
+      <div class="team-avatar">👨‍💻</div>
+      <div class="team-name">팀원 이름</div>
+      <div class="team-role">Team Lead · Decision Layer</div>
+      <div class="team-skills">
+        <span class="sk">VLM Pipeline</span>
+        <span class="sk">Prompt Engineering</span>
+        <span class="sk">System Integration</span>
+      </div>
+    </div>
+    <div class="team-card reveal">
+      <div class="team-avatar">🤖</div>
+      <div class="team-name">수환</div>
+      <div class="team-role">Control Layer · ROS2</div>
+      <div class="team-skills">
+        <span class="sk">ROS2</span>
+        <span class="sk">Doosan Robot</span>
+        <span class="sk">Gripper Control</span>
+      </div>
+    </div>
+    <div class="team-card reveal">
+      <div class="team-avatar">📷</div>
+      <div class="team-name">팀원 이름</div>
+      <div class="team-role">Perception Layer</div>
+      <div class="team-skills">
+        <span class="sk">RealSense</span>
+        <span class="sk">OpenCV</span>
+        <span class="sk">Depth Estimation</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<footer>
+  <div class="footer-info">
+    © 2026 R.O.S.T Project · KG Kairos<br>
+    <span style="font-size:.72rem;opacity:.5;">Robotics Object Sorting Technology</span>
+  </div>
+  <div class="footer-logo">R·O·S·T</div>
+</footer>
+
+<script>
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => { if(e.isIntersecting){ e.target.classList.add('visible'); io.unobserve(e.target); } });
+}, { threshold: 0.1 });
+document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
+</body>
+</html>
